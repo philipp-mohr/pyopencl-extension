@@ -9,7 +9,7 @@ What makes pyopencl-extension special?
    * Usage of this framework forces consistent code when programming for GPU.
    * Allows debugging of OpenCl-Programs through kernel emulation in Python using a visual debugger (tested with Pycharm).
    * OpenCl emulation allows to find out-of-bounds array indexing easily.
-   * Integrated profiling feature give quick overview over performance bottlenecks.
+   * Integrated profiling features give quick overview over performance bottlenecks.
    * ...
 
 
@@ -26,7 +26,7 @@ When automatic installation of pyopencl fails (happen using Windows):
 
 Usage
 -----
-One very simple example is given below. More advanced and useful scenarios will be added in the future.
+One very simple example is given below.
 
 
 .. code-block:: python
@@ -47,3 +47,5 @@ One very simple example is given below. More advanced and useful scenarios will 
                    global_size=ary.shape).compile(cl_init)
     knl()
     assert np.allclose(ary.get(), np.arange(10)+3)
+
+More advanced and useful example scenarios will be added in the future here.

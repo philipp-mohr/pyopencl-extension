@@ -1,15 +1,9 @@
-import os
-from typing import Tuple, Union
-
-from mako.template import Template
-from pyopencl import cltypes
+from typing import Tuple
 
 import pyopencl as cl
 import pyopencl.array as cl_array
-from pyopencl.array import Array
 
-from pyopencl_extension.framework import ClHelpers, ClProgram, ClKernel, KnlArgBuffer, KnlGridType, ScalarArgTypes, \
-    ClInit
+from pyopencl_extension import ClKernel, KnlArgBuffer, ClInit
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"

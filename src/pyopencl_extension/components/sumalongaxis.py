@@ -1,7 +1,7 @@
 from pyopencl.array import Array, empty
 
-from pyopencl_extension.framework import ClHelpers, ClProgram, ClKernel, KnlArgBuffer, KnlArgScalar, \
-    KernelCallReturnType, ArgBuffer, ClInit
+from pyopencl_extension import ClHelpers, ClProgram, ClKernel, KnlArgBuffer, KnlArgScalar, \
+    ClInit
 from pyopencl_extension.np_cl_types import ClTypes
 
 __author__ = "piveloper"

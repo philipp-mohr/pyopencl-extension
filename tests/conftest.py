@@ -1,6 +1,6 @@
 from pytest import fixture
 
-from pyopencl_extension.framework import ClInit
+from pyopencl_extension import ClInit
 
 
 @fixture(scope="session")

@@ -1,12 +1,12 @@
 from copy import copy
-from typing import Tuple, Any, Union
+from typing import Tuple, Union
+
 import numpy as np
-from pyopencl.array import Array, empty, empty_like, zeros, to_device
+from pyopencl.array import Array, empty, zeros, to_device
 from pytest import mark
 
-from pyopencl_extension.framework import ClInit, ClHelpers, ClKernel, ArgBase, ClProgram, \
-    c_name_from_dtype, KnlArgBuffer, KnlArgScalar
-from pyopencl_extension.np_cl_types import ClTypes
+from pyopencl_extension import ClInit, ClHelpers, ClKernel, ClProgram, \
+    c_name_from_dtype, KnlArgBuffer, KnlArgScalar, ClTypes
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
