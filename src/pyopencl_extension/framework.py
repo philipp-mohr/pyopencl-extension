@@ -713,26 +713,6 @@ class ClHelpers:
     This framework enables to emulate the kernel execution in Python for e.g. debugging purposes.
     The child class has to call self.post_init() to build program.
     """
-
-    @abstractmethod
-    def _get_cl_program(self) -> ClProgram:
-        """
-        Use this method to build up and compile a template containing kernel functions.
-
-        :return:
-        """
-        pass
-
-    @abstractmethod
-    def __init__(self, cl_init: Union[ClInit, Array], b_create_kernel_file: bool = True, b_python: bool = False):
-        super().__init__(cl_init)
-        self.b_python = b_python
-        name = self._camel_to_snake(self.__class__.__name__)
-        if b_create_kernel_file:
-            self.file = str(Path(os.getcwd()).joinpath('py_cl_kernels/{}'.format(name)))
-        else:
-            self.file = None
-
     @staticmethod
     def _camel_to_snake(name):
         name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
