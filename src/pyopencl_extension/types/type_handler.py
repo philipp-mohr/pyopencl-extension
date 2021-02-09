@@ -1,3 +1,5 @@
+from typing import Tuple, Any
+
 import numpy as np
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype
 import pyopencl_extension.modifications_pyopencl.cltypes as tp
@@ -24,6 +26,8 @@ class VecVal:
                      for i in range(self.vec_size)])
         return self.type_handler(*res)
 
+    # Alternative to intercept all magic methods:
+    # https://stackoverflow.com/questions/9057669/how-can-i-intercept-calls-to-pythons-magic-methods-in-new-style-classes
     def __add__(self, other):
         return self._perform_on_each_element(other, '__add__')
 
@@ -32,6 +36,173 @@ class VecVal:
 
     def __sub__(self, other):
         return self._perform_on_each_element(other, '__sub__')
+
+    def __truediv__(self, other):
+        return self._perform_on_each_element(other, '__truediv__')
+
+    # todo: implement other build in when required
+    def __abs__(self, *args, **kwargs):  # real signature unknown
+        """ abs(self) """
+        pass
+
+    def __and__(self, *args, **kwargs):  # real signature unknown
+        """ Return self&value. """
+        pass
+
+    def __bool__(self, *args, **kwargs):  # real signature unknown
+        """ self != 0 """
+        pass
+
+    def __ceil__(self, *args, **kwargs):  # real signature unknown
+        """ Ceiling of an Integral returns itself. """
+        pass
+
+    def __divmod__(self, *args, **kwargs):  # real signature unknown
+        """ Return divmod(self, value). """
+        pass
+
+    def __eq__(self, *args, **kwargs):  # real signature unknown
+        """ Return self==value. """
+        pass
+
+    def __ge__(self, *args, **kwargs):  # real signature unknown
+        """ Return self>=value. """
+        pass
+
+    def __gt__(self, *args, **kwargs):  # real signature unknown
+        """ Return self>value. """
+        pass
+
+    def __hash__(self, *args, **kwargs):  # real signature unknown
+        """ Return hash(self). """
+        pass
+
+    def __index__(self, *args, **kwargs):  # real signature unknown
+        """ Return self converted to an integer, if self is suitable for use as an index into a list. """
+        pass
+
+    def __int__(self, *args, **kwargs):  # real signature unknown
+        """ int(self) """
+        pass
+
+    def __invert__(self, *args, **kwargs):  # real signature unknown
+        """ ~self """
+        pass
+
+    def __le__(self, *args, **kwargs):  # real signature unknown
+        """ Return self<=value. """
+        pass
+
+    def __lshift__(self, *args, **kwargs):  # real signature unknown
+        """ Return self<<value. """
+        pass
+
+    def __lt__(self, *args, **kwargs):  # real signature unknown
+        """ Return self<value. """
+        pass
+
+    def __mod__(self, *args, **kwargs):  # real signature unknown
+        """ Return self%value. """
+        pass
+
+    def __neg__(self, *args, **kwargs):  # real signature unknown
+        """ -self """
+        pass
+
+    def __ne__(self, *args, **kwargs):  # real signature unknown
+        """ Return self!=value. """
+        pass
+
+    def __or__(self, *args, **kwargs):  # real signature unknown
+        """ Return self|value. """
+        pass
+
+    def __pos__(self, *args, **kwargs):  # real signature unknown
+        """ +self """
+        pass
+
+    def __pow__(self, *args, **kwargs):  # real signature unknown
+        """ Return pow(self, value, mod). """
+        pass
+
+    def __radd__(self, *args, **kwargs):  # real signature unknown
+        """ Return value+self. """
+        pass
+
+    def __rand__(self, *args, **kwargs):  # real signature unknown
+        """ Return value&self. """
+        pass
+
+    def __rdivmod__(self, *args, **kwargs):  # real signature unknown
+        """ Return divmod(value, self). """
+        pass
+
+    def __repr__(self, *args, **kwargs):  # real signature unknown
+        """ Return repr(self). """
+        pass
+
+    def __rfloordiv__(self, *args, **kwargs):  # real signature unknown
+        """ Return value//self. """
+        pass
+
+    def __rlshift__(self, *args, **kwargs):  # real signature unknown
+        """ Return value<<self. """
+        pass
+
+    def __rmod__(self, *args, **kwargs):  # real signature unknown
+        """ Return value%self. """
+        pass
+
+    def __rmul__(self, *args, **kwargs):  # real signature unknown
+        """ Return value*self. """
+        pass
+
+    def __ror__(self, *args, **kwargs):  # real signature unknown
+        """ Return value|self. """
+        pass
+
+    def __round__(self, *args, **kwargs):  # real signature unknown
+        """
+        Rounding an Integral returns itself.
+        Rounding with an ndigits argument also returns an integer.
+        """
+        pass
+
+    def __rpow__(self, *args, **kwargs):  # real signature unknown
+        """ Return pow(value, self, mod). """
+        pass
+
+    def __rrshift__(self, *args, **kwargs):  # real signature unknown
+        """ Return value>>self. """
+        pass
+
+    def __rshift__(self, *args, **kwargs):  # real signature unknown
+        """ Return self>>value. """
+        pass
+
+    def __rsub__(self, *args, **kwargs):  # real signature unknown
+        """ Return value-self. """
+        pass
+
+    def __rtruediv__(self, *args, **kwargs):  # real signature unknown
+        """ Return value/self. """
+        pass
+
+    def __rxor__(self, *args, **kwargs):  # real signature unknown
+        """ Return value^self. """
+        pass
+
+    def __sizeof__(self, *args, **kwargs):  # real signature unknown
+        """ Returns size in memory, in bytes. """
+        pass
+
+    def __trunc__(self, *args, **kwargs):  # real signature unknown
+        """ Truncating an Integral returns itself. """
+        pass
+
+    def __xor__(self, *args, **kwargs):  # real signature unknown
+        """ Return self^value. """
+        pass
 
 
 class TypeHandlerScalar:
@@ -55,8 +226,13 @@ class TypeHandlerVec:
         self._type = eval(f'tp.make_{name}')
 
     def __call__(self, *args):
-        a = self._type(*args)
-        return VecVal(a)
+        if isinstance(args[0], VecVal):
+            return args[0]
+        elif isinstance(args, Tuple):
+            a = self._type(*args)
+            return VecVal(a)
+        else:
+            raise ValueError(f'Input not supported: {args=}')
 
 
 def test_vec_val():

@@ -349,3 +349,28 @@ def test_for_loop(cl_init, header):
         return res
 
     assert np.all(eval_code(False) == eval_code(True))
+
+
+def test_vector_types(cl_init):  # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
+    data = np.zeros((10,)).astype(ClTypes.char2)
+    knl = ClKernel('knl_vector_types',
+                   {'data': data},
+                   """
+        char2 a = (char2)(4,2);
+        char2 b = (char2)(1,2);
+        data[0] = a;
+        data[1] = b;
+        data[2] = a + b;
+        data[3] = a * b;
+        data[4] = a - b;
+        data[5] = a / b;
+    """,
+                   global_size=data.shape)
+    knl_cl = knl.compile(cl_init)
+    knl_py = knl.compile(cl_init, b_python=True)
+    knl_cl()
+    cl_init.queue.finish()
+    res_cl = knl_cl.data.get()
+    knl_py()
+    res_py = knl_py.data.get()
+    assert np.all(res_cl == res_py)

@@ -19,10 +19,12 @@ __doc__ = """This script includes helpful functions to extended PyOpenCl functio
 
 from pyopencl.array import Array
 
-from pyopencl_extension.types.funcs_for_emulation import CArray
+from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec
 from pyopencl_extension.helpers.general import write_string_to_file
 
 # following lines are used to support functions from <pyopencl-complex.h>
+from pyopencl_extension.types.utilities_np_cl import is_vector_type
+
 preamble_buff_t_complex_np = lambda cplx_t: """
 {cplx_t}_mul = lambda x, y: {cplx_t}_t(x * y)
 {cplx_t}_add = lambda x, y: {cplx_t}_t(x + y)
@@ -486,7 +488,15 @@ def cl_kernel(kernel):
         work_items = [WorkItem(global_id=gid, global_size=global_size, local_size=local_size,
                                local_memory_collection=local_memory_collection)
                       for gid in np.ndindex(global_size)]
-        args_python = [arg.view(CArray) if isinstance(arg, np.ndarray) else arg for arg in args_python]
+
+        def decide_ary_view(arg):
+            if is_vector_type(arg.dtype):
+                return arg.view(CArrayVec)
+            else:
+                return arg.view(CArray)
+
+        args_python = [decide_ary_view(arg) if isinstance(arg, np.ndarray) else arg
+                       for arg in args_python]
         for wi in work_items:
             wi.work_items = work_items
         blocking_kernels = [kernel(work_item, *args_python) for work_item in work_items]

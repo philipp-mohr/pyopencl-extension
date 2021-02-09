@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import math as math
 
@@ -11,7 +13,7 @@ void = np.dtype('void').type
 
 class CArray(np.ndarray):
     # https://numpy.org/doc/stable/user/basics.subclassing.html
-
+    # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
     def __new__(cls, shape, dtype, *args, **kwargs):
         if is_vector_type(dtype):
             return CArrayVec(shape, dtype, *args, **kwargs)
@@ -43,16 +45,18 @@ class CArray(np.ndarray):
 
 
 class CArrayVec(np.ndarray):
-    def __new__(cls, *args, **kwargs):
-        instance_ = super(CArrayVec, cls).__new__(cls, *args, **kwargs)
-        instance_.vec_size = len(instance_.dtype.descr)
-        return instance_
+    # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
+    # def __new__(cls, *args, **kwargs):
+    #     instance_ = super(CArrayVec, cls).__new__(cls, *args, **kwargs)
+    #     instance_.vec_size = len(instance_.dtype.descr)
+    #     return instance_
 
     def __add__(self, other):
         pass
 
     def __setitem__(self, instance, value):
-        for i in range(self.vec_size):
+        vec_size = len(self.dtype.descr)
+        for i in range(vec_size):
             field = f's{i}'
             self[instance].val[field] = value.val[field]
 
