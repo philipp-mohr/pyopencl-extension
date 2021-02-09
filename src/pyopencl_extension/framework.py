@@ -12,10 +12,10 @@ from pyopencl import Program, create_some_context
 from pyopencl._cl import CommandQueue, Kernel, Context, get_platforms, device_type, Device, command_queue_properties
 from pyopencl.array import Array, to_device
 
-from pyopencl_extension.helpers import write_string_to_file
-from pyopencl_extension.np_cl_types import c_name_from_dtype, scalar_type_from_vec_type, \
+from pyopencl_extension.helpers.general import write_string_to_file
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
     get_vec_size, ClTypes
-from pyopencl_extension.unparse import create_py_file_and_load_module, unparse_c_code_to_python
+from pyopencl_extension.emulation import create_py_file_and_load_module, unparse_c_code_to_python
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"

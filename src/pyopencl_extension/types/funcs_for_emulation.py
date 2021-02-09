@@ -1,10 +1,24 @@
 import numpy as np
 import math as math
-from pyopencl_extension.np_cl_types import c_to_np_type_name_catch
+
+from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, ClTypes, is_vector_type
+from pyopencl_extension.types.auto_gen.types_for_emulation import *
+
+cfloat_t = np.dtype('complex64').type
+cdouble_t = np.dtype('complex128').type
+void = np.dtype('void').type
 
 
 class CArray(np.ndarray):
     # https://numpy.org/doc/stable/user/basics.subclassing.html
+
+    def __new__(cls, shape, dtype, *args, **kwargs):
+        if is_vector_type(dtype):
+            return CArrayVec(shape, dtype, *args, **kwargs)
+        else:
+            return super(CArray, cls).__new__(cls, shape, dtype, *args, **kwargs)
+        # here, attributes can be added to numpy class instance_
+
     def __add__(self, other):
         ary = self[other:]
         if hasattr(self, 'org'):  # keeps pointer to original allocated memory space
@@ -16,9 +30,35 @@ class CArray(np.ndarray):
     @property
     def np(self):
         return np.array(self)
+
     # todo: decrement a pointer
     # def __sub__(self, other):
     #     return self[other:]
+
+    def __set__(self, instance, value):
+        pass
+
+    def __setitem__(self, instance, value):
+        super().__setitem__(instance, value)
+
+
+class CArrayVec(np.ndarray):
+    def __new__(cls, *args, **kwargs):
+        instance_ = super(CArrayVec, cls).__new__(cls, *args, **kwargs)
+        instance_.vec_size = len(instance_.dtype.descr)
+        return instance_
+
+    def __add__(self, other):
+        pass
+
+    def __setitem__(self, instance, value):
+        for i in range(self.vec_size):
+            field = f's{i}'
+            self[instance].val[field] = value.val[field]
+
+    def __getitem__(self, item):
+        res = super(CArrayVec, self).__getitem__(item)
+        return VecVal(res)
 
 
 sign = lambda x: np.sign(x)

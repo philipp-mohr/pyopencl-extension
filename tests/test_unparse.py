@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from pyopencl import Program
 from pyopencl.array import zeros, zeros_like, to_device
-from pyopencl_extension import unparse
+from pyopencl_extension import emulation
 from pyopencl_extension import unparse_c_code_to_python, create_py_file_and_load_module, ClTypes, ClKernel, \
     KnlArgBuffer, ClFunction, ClProgram, ArgPrivate
 from pytest import mark
@@ -267,7 +267,7 @@ def test_pointer_arithmetics(cl_init):
     """,
                    global_size=data.shape)
     knl_cl = knl.compile(cl_init)
-    unparse.set_b_use_existing_file_for_emulation(False)
+    emulation.set_b_use_existing_file_for_emulation(False)
     knl_py = knl.compile(cl_init, b_python=True)
     knl_cl()
     res_cl = knl_cl.data.get()

@@ -1,7 +1,7 @@
 from typing import Union
-
-from .np_cl_types import *
+from pyopencl_extension.types.utilities_np_cl import *
 from pyopencl_extension import ClInit
+import re
 
 __author__ = "piveloper"
 __copyright__ = "05.02.2021, piveloper"

@@ -19,9 +19,8 @@ __doc__ = """This script includes helpful functions to extended PyOpenCl functio
 
 from pyopencl.array import Array
 
-from pyopencl_extension.funcs_for_cl_emulation import CArray
-from pyopencl_extension.np_cl_types import c_to_np_type_name_catch, np_to_c_type_name
-from pyopencl_extension.helpers import write_string_to_file
+from pyopencl_extension.types.funcs_for_emulation import CArray
+from pyopencl_extension.helpers.general import write_string_to_file
 
 # following lines are used to support functions from <pyopencl-complex.h>
 preamble_buff_t_complex_np = lambda cplx_t: """
@@ -554,13 +553,10 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
         raise ValueError('Preprocessing line content not covered with Regex')
 
 
-preamble_typedefs_np_c = '\n'.join([f'{v} = np.dtype(\'{k}\').type' for k, v in np_to_c_type_name.items()])
-
-
 def unparse_type_def_node(node: Typedef):
     type_name_c = node.type.type.names[0]
     # return '{} = np.dtype(ClTypes.{}).type'.format(node.name, type_name_c)
-    return f'{node.name} = np.dtype(\'{c_to_np_type_name_catch(type_name_c)}\').type'
+    return f'{node.name} = {type_name_c}'
 
 
 def unparse_c_code_to_python(code_c: str) -> str:
@@ -583,9 +579,9 @@ def unparse_c_code_to_python(code_c: str) -> str:
     module_py = []
     header = """
 from typing import Tuple
-from pyopencl_extension.unparse import cl_kernel, WorkItem, local_memory
-from pyopencl_extension.funcs_for_cl_emulation import *
-from pyopencl_extension.np_cl_types import ClTypes, c_to_np_type_name_catch
+from pyopencl_extension.emulation import cl_kernel, WorkItem, local_memory
+from pyopencl_extension.types.funcs_for_emulation import *
+from pyopencl_extension.types.utilities_np_cl import ClTypes, c_to_np_type_name_catch
 import numpy as np
             """
     module_py.append(header)
@@ -594,7 +590,6 @@ import numpy as np
     elif 'cdouble' in code_c:
         module_py.append(preamble_buff_t_complex128_np)
     # module_py.append(preamble_cl_funcs_to_lambdas)
-    module_py.append(preamble_typedefs_np_c)
 
     names_func_require_work_item.clear()
     names_func_require_work_item.extend([node.decl.name for node in ast.ext if isinstance(node, FuncDef)])
@@ -606,7 +601,7 @@ import numpy as np
         if type(node) == Typedef:
             module_py.append(unparse_type_def_node(node))
         if isinstance(node, FuncDef):
-            module_py.append('\n\n')
+            module_py.append('\n')
             module_py.append(unparse_function_node(node))
 
     code_py = '\n'.join(module_py)

@@ -2,7 +2,7 @@ from pyopencl.array import Array, empty
 
 from pyopencl_extension import ClHelpers, ClProgram, ClKernel, KnlArgBuffer, KnlArgScalar, \
     ClInit
-from pyopencl_extension.np_cl_types import ClTypes
+from pyopencl_extension import ClTypes
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"

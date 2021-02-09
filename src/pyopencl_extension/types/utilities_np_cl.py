@@ -1,14 +1,15 @@
 import re as re
-from dataclasses import dataclass
 
 import numpy as np
-import pyopencl_extension.modifications_pyopencl.cltypes as tp
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
+
+from pyopencl_extension.types.auto_gen.cl_types import ClTypesVector
+from pyopencl_extension.types.auto_gen.cl_types import _ClTypes
 
 np_to_c_type_name = {
     'float16': 'half',
@@ -44,74 +45,7 @@ def c_to_np_type_name_catch(c_name):
         return c_name
 
 
-@dataclass
-class ClTypes:
-    char: np.dtype = np.dtype(tp.char)
-    char2: np.dtype = tp.char2
-    char4: np.dtype = tp.char4
-    char8: np.dtype = tp.char8
-    char16: np.dtype = tp.char16
-
-    short: np.dtype = np.dtype(tp.short)
-    short2: np.dtype = tp.short2
-    short4: np.dtype = tp.short4
-    short8: np.dtype = tp.short8
-    short16: np.dtype = tp.short16
-
-    int: np.dtype = np.dtype(tp.int)
-    int2: np.dtype = tp.int2
-    int4: np.dtype = tp.int4
-    int8: np.dtype = tp.int8
-    int16: np.dtype = tp.int16
-
-    long: np.dtype = np.dtype(tp.long)
-    long2: np.dtype = tp.long2
-    long4: np.dtype = tp.long4
-    long8: np.dtype = tp.long8
-    long16: np.dtype = tp.long16
-
-    uchar: np.dtype = np.dtype(tp.uchar)
-    uchar2: np.dtype = tp.uchar2
-    uchar4: np.dtype = tp.uchar4
-    uchar8: np.dtype = tp.uchar8
-    uchar16: np.dtype = tp.uchar16
-
-    ushort: np.dtype = np.dtype(tp.ushort)
-    ushort2: np.dtype = tp.ushort2
-    ushort4: np.dtype = tp.ushort4
-    ushort8: np.dtype = tp.ushort8
-    ushort16: np.dtype = tp.ushort16
-
-    uint: np.dtype = np.dtype(tp.uint)
-    uint2: np.dtype = tp.uint2
-    uint4: np.dtype = tp.uint4
-    uint8: np.dtype = tp.uint8
-    uint16: np.dtype = tp.uint16
-
-    ulong: np.dtype = np.dtype(tp.ulong)
-    ulong2: np.dtype = tp.ulong2
-    ulong4: np.dtype = tp.ulong4
-    ulong8: np.dtype = tp.ulong8
-    ulong16: np.dtype = tp.ulong16
-
-    half: np.dtype = np.dtype(tp.half)
-    half2: np.dtype = tp.half2
-    half4: np.dtype = tp.half4
-    half8: np.dtype = tp.half8
-    half16: np.dtype = tp.half16
-
-    float: np.dtype = np.dtype(tp.float)
-    float2: np.dtype = tp.float2
-    float4: np.dtype = tp.float4
-    float8: np.dtype = tp.float8
-    float16: np.dtype = tp.float16
-
-    double: np.dtype = np.dtype(tp.double)
-    double2: np.dtype = tp.double2
-    double4: np.dtype = tp.double4
-    double8: np.dtype = tp.double8
-    double16: np.dtype = tp.double16
-
+class ClTypes(_ClTypes):
     cfloat: np.dtype = np.dtype(np.complex64)
     cdouble: np.dtype = np.dtype(np.complex128)
 
@@ -145,6 +79,10 @@ def c_name_from_dtype(dtype: np.dtype) -> str:
 
 def dtype_from_c_name(c_name: str):
     return getattr(ClTypes, c_name)
+
+
+def dtype_to_c_name(dtype):
+    return np_to_c_type_name_catch(dict(dtype.fields)['s0'][0].name) + str(len(dtype.names))
 
 
 def scalar_type_from_vec_type(dtype: np.dtype) -> np.dtype:
@@ -235,6 +173,10 @@ def is_complex_type(dtype: np.dtype):
         return False
 
 
+def is_vector_type(dtype: np.dtype):
+    return dtype in list(ClTypesVector().__dict__.values())
+
+
 def defines_generic_operations(cl_code, generic_type: np.dtype):
     if is_complex_type(generic_type):
         preample_cplx_operations = """
@@ -256,6 +198,5 @@ def defines_generic_operations(cl_code, generic_type: np.dtype):
         #define NEW c${cplx_type}_new
         #define CONJ c${cplx_type}_conj
         """.replace('${cplx_type}', 'float' if generic_type is ClTypes.cfloat else 'double')
-
 
     return cl_code
