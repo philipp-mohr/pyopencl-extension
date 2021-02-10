@@ -11,7 +11,13 @@ cdouble_t = np.dtype('complex128').type
 void = np.dtype('void').type
 
 
-class CArray(np.ndarray):
+class ClArrayBase(np.ndarray):
+    @property
+    def np(self):
+        pass
+
+
+class CArray(ClArrayBase):
     # https://numpy.org/doc/stable/user/basics.subclassing.html
     # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
     def __new__(cls, shape, dtype, *args, **kwargs):
@@ -44,7 +50,7 @@ class CArray(np.ndarray):
         super().__setitem__(instance, value)
 
 
-class CArrayVec(np.ndarray):
+class CArrayVec(ClArrayBase):
     # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
     # def __new__(cls, *args, **kwargs):
     #     instance_ = super(CArrayVec, cls).__new__(cls, *args, **kwargs)
@@ -56,13 +62,25 @@ class CArrayVec(np.ndarray):
 
     def __setitem__(self, instance, value):
         vec_size = len(self.dtype.descr)
+        # get reference
+        element = super(CArrayVec, self).__getitem__(instance)
+        # element =self[instance] this returns a copy of the the element in memory and therefore an assignment has no effect
+        # on origional
         for i in range(vec_size):
             field = f's{i}'
-            self[instance].val[field] = value.val[field]
+            element[field] = value.val[field]
+            # self[instance].val[field] = value.val[field]
 
     def __getitem__(self, item):
         res = super(CArrayVec, self).__getitem__(item)
-        return VecVal(res)
+        return VecVal(res.copy())
+
+    @property
+    def np(self):
+        vector_element_dtype = dict(self.dtype.fields)['s0'][0]
+        vector_len = len(self.dtype.descr)
+        res = np.array(self.view(vector_element_dtype)).reshape(self.shape[0], vector_len)
+        return res
 
 
 sign = lambda x: np.sign(x)
@@ -77,7 +95,13 @@ barrier = lambda x: x
 CLK_GLOBAL_MEM_FENCE = None
 select = lambda a, b, c: b if c else a
 any = lambda x: np.any(x)
-init_array = lambda size, type_c: np.ones((size,), dtype=c_to_np_type_name_catch(type_c)).view(CArray)
+
+
+def init_array(size, type_c):
+    if isinstance(type_c, TypeHandlerScalar):
+        return np.ones((size,), dtype=c_to_np_type_name_catch(type_c.dtype)).view(CArray)
+    elif isinstance(type_c, TypeHandlerVec):
+        return np.ones((size,), dtype=type_c.dtype).view(CArrayVec)
 
 
 # init_array = lambda size, type_c: np.empty((size,), dtype=c_to_np_type_name_catch(type_c))

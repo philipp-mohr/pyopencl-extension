@@ -1,7 +1,7 @@
 from typing import Tuple, Any
 
 import numpy as np
-from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES
 import pyopencl_extension.modifications_pyopencl.cltypes as tp
 
 
@@ -22,9 +22,24 @@ class VecVal:
         self.vec_size = len(val.dtype.descr)
 
     def _perform_on_each_element(self, other, operation):
+        # e.g. 1) vec[0] *= (a, b); instead of 2) vec[0] *= (vectype)(a, b);
+        # case 1) leads to erroneous behavior in opencl, therefore therefore error
+        if not isinstance(other, VecVal):
+            # other = self.type_handler(*other)
+            raise ValueError('Input type is invalid')
+
         res = tuple([getattr(self.val[f's{i}'], operation)(other.val[f's{i}'])
                      for i in range(self.vec_size)])
         return self.type_handler(*res)
+
+    vec_indices = [f's{idx}' for idx in VEC_INDICES]
+
+    def __getattr__(self, item):
+        # https://stackoverflow.com/questions/2405590/how-do-i-override-getattr-in-python-without-breaking-the-default-behavior
+        if item in self.vec_indices:
+            return self.val[f'{item}']
+        else:
+            raise AttributeError
 
     # Alternative to intercept all magic methods:
     # https://stackoverflow.com/questions/9057669/how-can-i-intercept-calls-to-pythons-magic-methods-in-new-style-classes
@@ -223,6 +238,7 @@ class TypeHandlerVec:
     """
 
     def __init__(self, name):
+        self.dtype = dtype_from_c_name(name)
         self._type = eval(f'tp.make_{name}')
 
     def __call__(self, *args):

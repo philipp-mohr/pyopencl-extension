@@ -119,6 +119,9 @@ class CommandQueueExtended(CommandQueue):
         super().__init__(context, device, properties)
         self.events = []
 
+    def get_profiler(self) -> 'Profiling':
+        return Profiling(self)
+
 
 class Profiling:
     def __init__(self, queue: CommandQueueExtended):

@@ -2,7 +2,7 @@ __author__ = "piveloper"
 __copyright__ = "06.02.2021, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
-__doc__ = """This module the convolution operation"""
+__doc__ = """This module contains the convolution operation"""
 
 from typing import List, Union
 
