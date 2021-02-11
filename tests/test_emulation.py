@@ -376,17 +376,23 @@ def test_vector_types(thread):  # todo use https://numpy.org/doc/stable/referenc
     assert np.all(res_cl == res_py)
 
 
-def test_local_barrier_inside_function(thread):
-    func = Function('shift_through_local_memory',
-                    {
-                        'ary': Global(Types.int),
-                        'shared': Local(Types.int)},
-                    """
+def test_nested_local_barrier_inside_function(thread):
+    func_nested = Function('nested_func',
+                           {
+                               'ary': Global(Types.int),
+                               'shared': Local(Types.int)},
+                           """
                shared[get_global_id(0)] = ary[get_global_id(0)];
                barrier(CLK_LOCAL_MEM_FENCE);
                return shared[(get_global_id(0)+1)%2] ;
                """,
-                    return_type=Types.int)
+                           return_type=Types.int)
+    func_parent = Function('parent',
+                           func_nested.args,
+                           """
+               return nested_func(ary, shared);
+               """,
+                           return_type=Types.int)
 
     ary = to_device(thread.queue, (ary_np := np.array([1, 2]).astype(Types.int)))
     set_b_use_existing_file_for_emulation(False)
@@ -396,9 +402,9 @@ def test_local_barrier_inside_function(thread):
                  },
                  """
                 __local int shared[2];
-                ary[get_global_id(0)] = shift_through_local_memory(ary, shared);
+                ary[get_global_id(0)] = parent(ary, shared);
                    """, global_size=ary.shape)
-    prog = Program([func], [knl])
+    prog = Program([func_nested, func_parent], [knl])
     prog_py = prog.compile(thread, b_python=True)
     prog_cl = prog.compile(thread, b_python=False)
     prog_py.some_knl()

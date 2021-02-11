@@ -118,6 +118,7 @@ names_func_require_work_item = []
 
 names_func_has_barrier = []
 
+
 def _unparse(node: Node) -> Container:
     if isinstance(node, FuncDef):
         # check if function is kernel
@@ -178,7 +179,7 @@ def _unparse(node: Node) -> Container:
                 if func_name in names_func_require_work_item:
                     res = '{}(wi, {})'.format(_unparse(node.name), _unparse(node.args))
                     if func_name in names_func_has_barrier:
-                        res = f'yield from {res}'
+                        res = f'(yield from {res})'
                 else:
                     res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
         else:
@@ -577,7 +578,31 @@ def unparse_type_def_node(node: Typedef):
 
 
 def search_for_barrier(code_c, ast):
-    lines_with_barrier = [line for line, line_content in enumerate(code_c.split('\n'))
+    """
+    Searches for barriers inside of functions.
+    e.g. consider following c code (Pseudocode):
+    int func_nested(){
+        barrier(...);
+
+    int func_parent(){
+        func_nested()
+
+    __kernel kernel_func(){
+        func_parent
+
+    After conversion, the barrier call is emulated by making use of yield and yield from.
+
+    def func_nested():
+        barrier(...);
+
+    int func_parent():
+        return (yield from func_nested())
+
+    __kernel kernel_func():
+        (yield from func_parent)
+    """
+    code_c = code_c.split('\n')
+    lines_with_barrier = [line for line, line_content in enumerate(code_c)
                           if 'barrier(CLK_' in line_content]
 
     def get_start_line(_):
@@ -586,16 +611,20 @@ def search_for_barrier(code_c, ast):
         elif isinstance(_, list):
             return _[0].coord.line
 
-    line_endings = [get_start_line(_) for _ in ast.ext][1:] + [len(code_c.split('\n'))]
+    line_endings = [get_start_line(_) for _ in ast.ext][1:] + [len(code_c)]
     funcs = [{'name': _.decl.name,
               'start_line': _.coord.line,
               'end_line': line_endings[i],
               'is_kernel': any(['kernel' in spec for spec in _.decl.funcspec])}
              for i, _ in enumerate(ast.ext) if isinstance(_, FuncDef)]
+    # or funcs with nested func that has barrier
     funcs_with_barrier = [_ for _ in funcs if
                           any(_['start_line'] < line < _['end_line'] for line in lines_with_barrier)]
+    funcs_nested_barrier = [_ for _ in funcs if
+                            any(func['name'] in ''.join(code_c[_['start_line']:_['end_line']])
+                                for func in funcs_with_barrier)]
 
-    return [_['name'] for _ in funcs_with_barrier if not _['is_kernel']]
+    return [_['name'] for _ in funcs_with_barrier+funcs_nested_barrier if not _['is_kernel']]
 
 
 def unparse_c_code_to_python(code_c: str) -> str:
