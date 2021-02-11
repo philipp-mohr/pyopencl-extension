@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from pyopencl import Program
 from pyopencl.array import zeros, zeros_like, to_device
-from pyopencl_extension import emulation
+from pyopencl_extension import emulation, set_b_use_existing_file_for_emulation, ArgLocal, ArgBuffer
 from pyopencl_extension import unparse_c_code_to_python, create_py_file_and_load_module, ClTypes, ClKernel, \
     KnlArgBuffer, ClFunction, ClProgram, ArgPrivate
 from pytest import mark
@@ -374,3 +374,38 @@ def test_vector_types(cl_init):  # todo use https://numpy.org/doc/stable/referen
     knl_py()
     res_py = knl_py.data.get()
     assert np.all(res_cl == res_py)
+
+
+def test_local_barrier_inside_function(cl_init):
+    func = ClFunction('shift_through_local_memory',
+                      {
+                          'ary': ArgBuffer(ClTypes.int),
+                          'shared': ArgLocal(ClTypes.int)},
+                      """
+               shared[get_global_id(0)] = ary[get_global_id(0)];
+               barrier(CLK_LOCAL_MEM_FENCE);
+               return shared[(get_global_id(0)+1)%2] ;
+               """,
+                      return_type=ClTypes.int)
+
+    ary = to_device(cl_init.queue, (ary_np := np.array([1, 2]).astype(ClTypes.int)))
+    set_b_use_existing_file_for_emulation(False)
+    knl = ClKernel('some_knl',
+                   {
+                       'ary': KnlArgBuffer(ary),
+                   },
+                   """
+                __local int shared[2];
+                ary[get_global_id(0)] = shift_through_local_memory(ary, shared);
+                   """, global_size=ary.shape)
+    prog = ClProgram([func], [knl])
+    prog_py = prog.compile(cl_init, b_python=True)
+    prog_cl = prog.compile(cl_init, b_python=False)
+    prog_py.some_knl()
+    ary_py = ary.get()
+    ary.set(ary_np)
+    prog_cl.some_knl()
+    ary_cl = ary.get()
+    cl_init.queue.finish()
+    assert np.allclose(ary_py, np.array([2, 1]))
+    assert np.allclose(ary_py, ary_cl)

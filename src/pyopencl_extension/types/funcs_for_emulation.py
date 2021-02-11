@@ -129,7 +129,7 @@ def set_imag(ary, idx, value):
 def c_modulo(dividend, divisor):
     if type(dividend).__module__ == 'numpy':
         return dividend.dtype.type(math.fmod(dividend, divisor))
-    elif type(dividend) == int:
+    elif type(dividend) == int or type(dividend) == int_:
         return int(math.fmod(dividend, divisor))
     else:
         raise NotImplementedError(f'modulo division not implemented for divendend of type {type(dividend)}')

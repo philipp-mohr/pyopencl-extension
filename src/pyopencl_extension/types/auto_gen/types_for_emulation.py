@@ -1,5 +1,7 @@
 from pyopencl_extension.modifications_pyopencl import cltypes
 from pyopencl_extension.types.type_handler import *
+int_ = int
+float_=float
 char=TypeHandlerScalar(cltypes.char)
 short=TypeHandlerScalar(cltypes.short)
 int=TypeHandlerScalar(cltypes.int)

@@ -38,12 +38,13 @@ def setup_file_cl_types():
 
 def setup_file_include_for_emulation():
     # preamble_typedefs_np_c = '\n'.join([f'{v} = np.dtype(\'{k}\').type' for k, v in np_to_c_type_name.items()])
-
-    scalar = '\n'.join([f'{t}=TypeHandlerScalar(cltypes.{t})' for t in all_scalar_number_types])
+    python_types = '\n'.join(['int_ = int', 'float_=float'])
+    scalar = '\n'.join(
+        [f'{t}=TypeHandlerScalar(cltypes.{t})' for t in all_scalar_number_types])
     vec = '\n'.join([f'{t}=TypeHandlerVec(\'{t}\')' for t in all_vec_number_types])
     import_cltypes = 'from pyopencl_extension.modifications_pyopencl import cltypes\n' \
                      'from pyopencl_extension.types.type_handler import *'
-    content = '\n'.join([import_cltypes, scalar, vec])
+    content = '\n'.join([import_cltypes, python_types, scalar, vec])
     with open(auto_gen_dir.joinpath('types_for_emulation.py'), 'w+') as file:
         file.write(content)
 

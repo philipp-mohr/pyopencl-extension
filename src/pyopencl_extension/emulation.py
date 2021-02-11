@@ -116,6 +116,7 @@ regex_real_imag_assignment = re.compile(r'([^\[]+)(\[)(.+)(\])(\.)(real|imag)') 
 
 names_func_require_work_item = []
 
+names_func_has_barrier = []
 
 def _unparse(node: Node) -> Container:
     if isinstance(node, FuncDef):
@@ -137,7 +138,10 @@ def _unparse(node: Node) -> Container:
         if len(node.decl.funcspec) > 0:
             if node.decl.funcspec[0] == '__kernel':
                 final_yield = py_indent('yield  # required to model local memory behaviour correctly')
-        function = '{}\n{}\n{}\n'.format(header, py_indent(body), final_yield)
+        if final_yield == '':
+            function = '{}\n{}'.format(header, py_indent(body))
+        else:
+            function = '{}\n{}\n{}'.format(header, py_indent(body), final_yield)
         res = function
     elif isinstance(node, FuncDeclExt):
         args = ', '.join(['{}'.format(p.name) for p in node.args.params])
@@ -167,11 +171,14 @@ def _unparse(node: Node) -> Container:
             elif func_name in translation_cl_work_item_functions:
                 res = 'wi.{}[{}]'.format(translation_cl_work_item_functions[func_name], _unparse(node.args))
             elif 'barrier' == func_name:
+                a = 1
                 res = f'\nwi.scope = locals()  # saves reference to objects in scope for debugging other wi in wg \n' \
                       f'yield  # yield models the behaviour of barrier({node.args.exprs[0].name})\n'
             else:
                 if func_name in names_func_require_work_item:
                     res = '{}(wi, {})'.format(_unparse(node.name), _unparse(node.args))
+                    if func_name in names_func_has_barrier:
+                        res = f'yield from {res}'
                 else:
                     res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
         else:
@@ -569,6 +576,28 @@ def unparse_type_def_node(node: Typedef):
     return f'{node.name} = {type_name_c}'
 
 
+def search_for_barrier(code_c, ast):
+    lines_with_barrier = [line for line, line_content in enumerate(code_c.split('\n'))
+                          if 'barrier(CLK_' in line_content]
+
+    def get_start_line(_):
+        if isinstance(_, FuncDef):
+            return _.coord.line
+        elif isinstance(_, list):
+            return _[0].coord.line
+
+    line_endings = [get_start_line(_) for _ in ast.ext][1:] + [len(code_c.split('\n'))]
+    funcs = [{'name': _.decl.name,
+              'start_line': _.coord.line,
+              'end_line': line_endings[i],
+              'is_kernel': any(['kernel' in spec for spec in _.decl.funcspec])}
+             for i, _ in enumerate(ast.ext) if isinstance(_, FuncDef)]
+    funcs_with_barrier = [_ for _ in funcs if
+                          any(_['start_line'] < line < _['end_line'] for line in lines_with_barrier)]
+
+    return [_['name'] for _ in funcs_with_barrier if not _['is_kernel']]
+
+
 def unparse_c_code_to_python(code_c: str) -> str:
     # todo prevents files: https://stackoverflow.com/questions/12644902/how-to-prevent-table-regeneration-in-ply
     # yacc.yacc(debug=False, write_tables=False)
@@ -584,6 +613,7 @@ def unparse_c_code_to_python(code_c: str) -> str:
     from pyopencl_extension import preamble_activate_complex_numbers
     code_c = code_c.replace(preamble_activate_complex_numbers, '')
     code_c = code_c.replace(preamble_activate_double, '')
+    code_c = code_c.replace('__const', '')  # todo: create constant array class which raises error when writing to
     # todo: comments can be extracted using line numbers. Nodes in abstract syntax tree provide coords for reinsertion
     ast = p.parse(code_c)  # abstract syntax tree, why no comments? --> https://github.com/eliben/pycparser/issues/124
     module_py = []
@@ -600,6 +630,10 @@ import numpy as np
     elif 'cdouble' in code_c:
         module_py.append(preamble_buff_t_complex128_np)
     # module_py.append(preamble_cl_funcs_to_lambdas)
+
+    # find funcs that contain barrier(CLK_LOCAL_MEM_FENCE) and therefore require yield from
+    names_func_has_barrier.clear()
+    names_func_has_barrier.extend(search_for_barrier(code_c, ast))
 
     names_func_require_work_item.clear()
     names_func_require_work_item.extend([node.decl.name for node in ast.ext if isinstance(node, FuncDef)])
