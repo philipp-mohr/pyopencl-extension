@@ -9,7 +9,7 @@ from typing import List, Union
 import numpy as np
 from pyopencl.array import Array, to_device, zeros
 from pyopencl_extension.components.copy_array_region import CopyArrayRegion
-from pyopencl_extension import ClInit, ClHelpers, ClKernel, ClProgram, KnlArgBuffer, is_complex_type
+from pyopencl_extension import Thread, ClHelpers, Kernel, Program, Global, is_complex_type
 
 
 class Convolution1D:
@@ -18,7 +18,7 @@ class Convolution1D:
         return self.impulse_response_buffer.get()
 
     def __init__(self, in_buffer: Array, impulse_response: Union[List[complex], np.ndarray, Array]):
-        self.cl_init = ClInit.from_buffer(in_buffer)
+        self.thread = Thread.from_buffer(in_buffer)
         self.queue = in_buffer.queue
         self.in_buffer = in_buffer
         if isinstance(impulse_response, Array):
@@ -35,19 +35,19 @@ class Convolution1D:
         self.out_buffer = zeros(self.queue, shape_out, dtype=in_buffer.dtype)
 
         axis_conv = self.in_buffer.ndim - 1
-        workgroup_size = 2 * self.cl_init.device.global_mem_cacheline_size
+        workgroup_size = 2 * self.thread.device.global_mem_cacheline_size
         global_size = (int(self.out_buffer.shape[axis_conv] / workgroup_size + 1.0) * workgroup_size,)
         local_size = (workgroup_size,)
 
-        self.knl = ClKernel(name='convolve',
-                            args={'x': KnlArgBuffer(self.in_buffer),
-                                  'h': KnlArgBuffer(self.impulse_response_buffer, '__constant'),
-                                  'y': KnlArgBuffer(self.out_buffer)},
-                            # https://en.wikipedia.org/wiki/Convolution
-                            # assumes filter dimension to be contiguous in memory
-                            # performs full convolution
-                            # thus input buffer does have leading and trailing zeros according to filter length
-                            body="""
+        self.knl = Kernel(name='convolve',
+                          args={'x': Global(self.in_buffer),
+                                  'h': Global(self.impulse_response_buffer, '__constant'),
+                                  'y': Global(self.out_buffer)},
+                          # https://en.wikipedia.org/wiki/Convolution
+                          # assumes filter dimension to be contiguous in memory
+                          # performs full convolution
+                          # thus input buffer does have leading and trailing zeros according to filter length
+                          body="""
                         int n = get_global_id(AXIS_CONV);
                         if(n<LENGTH_OUT_AXIS_CONV){
                             data_t _sum=${init_sum};
@@ -60,16 +60,16 @@ class Convolution1D:
                             y[n] = _sum;
                         }
                             """,
-                            type_defs={'data_t': (data_t := self.in_buffer.dtype)},
-                            replacements={'command_addr': ClHelpers.command_compute_address(self.in_buffer.ndim),
+                          type_defs={'data_t': (data_t := self.in_buffer.dtype)},
+                          replacements={'command_addr': ClHelpers.command_compute_address(self.in_buffer.ndim),
                                           'init_sum': '0' if is_complex_type(data_t) else 'NEW(0,0)'},
-                            defines={'AXIS_CONV': axis_conv,
+                          defines={'AXIS_CONV': axis_conv,
                                      'LENGTH_IN_AXIS_CONV': self.in_buffer.shape[axis_conv],
                                      'LENGTH_OUT_AXIS_CONV': self.out_buffer.shape[axis_conv],
                                      'LENGTH_IMP_RES': self.length_impulse_response},
-                            global_size=global_size,
-                            local_size=local_size
-                            ).compile(cl_init=self.cl_init, b_python=False)
+                          global_size=global_size,
+                          local_size=local_size
+                          ).compile(thread=self.thread, b_python=False)
 
     def __call__(self, b_python: bool = False, **kwargs) -> Array:
         self.knl()

@@ -262,11 +262,11 @@ def test_vec_val():
 
 def test_vec_val_and_carray():
     from pyopencl_extension.funcs_for_cl_emulation import CArray
-    from pyopencl_extension import ClTypes
+    from pyopencl_extension import Types
     import cltypes_emulation as tp_emulation
     a = tp_emulation.long2(1, 2)
     b = tp_emulation.long2(1, 2)
 
-    ary = CArray((10,), ClTypes.long2)
+    ary = CArray((10,), Types.long2)
     ary[0] = a + b
     assert ary[0].val == tp_emulation.long2(2, 4).val

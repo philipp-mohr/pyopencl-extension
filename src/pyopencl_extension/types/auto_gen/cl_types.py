@@ -1,71 +1,69 @@
 from pyopencl_extension.modifications_pyopencl import cltypes
 from dataclasses import dataclass
 import numpy as np
+from typing import Callable, Union
 
-
-@dataclass
+@dataclass(frozen=True)
 class ClTypesVector:
-    char2: np.dtype = cltypes.char2
-    char4: np.dtype = cltypes.char4
-    char8: np.dtype = cltypes.char8
-    char16: np.dtype = cltypes.char16
-    short2: np.dtype = cltypes.short2
-    short4: np.dtype = cltypes.short4
-    short8: np.dtype = cltypes.short8
-    short16: np.dtype = cltypes.short16
-    int2: np.dtype = cltypes.int2
-    int4: np.dtype = cltypes.int4
-    int8: np.dtype = cltypes.int8
-    int16: np.dtype = cltypes.int16
-    long2: np.dtype = cltypes.long2
-    long4: np.dtype = cltypes.long4
-    long8: np.dtype = cltypes.long8
-    long16: np.dtype = cltypes.long16
-    uchar2: np.dtype = cltypes.uchar2
-    uchar4: np.dtype = cltypes.uchar4
-    uchar8: np.dtype = cltypes.uchar8
-    uchar16: np.dtype = cltypes.uchar16
-    ushort2: np.dtype = cltypes.ushort2
-    ushort4: np.dtype = cltypes.ushort4
-    ushort8: np.dtype = cltypes.ushort8
-    ushort16: np.dtype = cltypes.ushort16
-    uint2: np.dtype = cltypes.uint2
-    uint4: np.dtype = cltypes.uint4
-    uint8: np.dtype = cltypes.uint8
-    uint16: np.dtype = cltypes.uint16
-    ulong2: np.dtype = cltypes.ulong2
-    ulong4: np.dtype = cltypes.ulong4
-    ulong8: np.dtype = cltypes.ulong8
-    ulong16: np.dtype = cltypes.ulong16
-    half2: np.dtype = cltypes.half2
-    half4: np.dtype = cltypes.half4
-    half8: np.dtype = cltypes.half8
-    half16: np.dtype = cltypes.half16
-    float2: np.dtype = cltypes.float2
-    float4: np.dtype = cltypes.float4
-    float8: np.dtype = cltypes.float8
-    float16: np.dtype = cltypes.float16
-    double2: np.dtype = cltypes.double2
-    double4: np.dtype = cltypes.double4
-    double8: np.dtype = cltypes.double8
-    double16: np.dtype = cltypes.double16
+   char2:Union[np.dtype, Callable]=cltypes.char2
+   char4:Union[np.dtype, Callable]=cltypes.char4
+   char8:Union[np.dtype, Callable]=cltypes.char8
+   char16:Union[np.dtype, Callable]=cltypes.char16
+   short2:Union[np.dtype, Callable]=cltypes.short2
+   short4:Union[np.dtype, Callable]=cltypes.short4
+   short8:Union[np.dtype, Callable]=cltypes.short8
+   short16:Union[np.dtype, Callable]=cltypes.short16
+   int2:Union[np.dtype, Callable]=cltypes.int2
+   int4:Union[np.dtype, Callable]=cltypes.int4
+   int8:Union[np.dtype, Callable]=cltypes.int8
+   int16:Union[np.dtype, Callable]=cltypes.int16
+   long2:Union[np.dtype, Callable]=cltypes.long2
+   long4:Union[np.dtype, Callable]=cltypes.long4
+   long8:Union[np.dtype, Callable]=cltypes.long8
+   long16:Union[np.dtype, Callable]=cltypes.long16
+   uchar2:Union[np.dtype, Callable]=cltypes.uchar2
+   uchar4:Union[np.dtype, Callable]=cltypes.uchar4
+   uchar8:Union[np.dtype, Callable]=cltypes.uchar8
+   uchar16:Union[np.dtype, Callable]=cltypes.uchar16
+   ushort2:Union[np.dtype, Callable]=cltypes.ushort2
+   ushort4:Union[np.dtype, Callable]=cltypes.ushort4
+   ushort8:Union[np.dtype, Callable]=cltypes.ushort8
+   ushort16:Union[np.dtype, Callable]=cltypes.ushort16
+   uint2:Union[np.dtype, Callable]=cltypes.uint2
+   uint4:Union[np.dtype, Callable]=cltypes.uint4
+   uint8:Union[np.dtype, Callable]=cltypes.uint8
+   uint16:Union[np.dtype, Callable]=cltypes.uint16
+   ulong2:Union[np.dtype, Callable]=cltypes.ulong2
+   ulong4:Union[np.dtype, Callable]=cltypes.ulong4
+   ulong8:Union[np.dtype, Callable]=cltypes.ulong8
+   ulong16:Union[np.dtype, Callable]=cltypes.ulong16
+   half2:Union[np.dtype, Callable]=cltypes.half2
+   half4:Union[np.dtype, Callable]=cltypes.half4
+   half8:Union[np.dtype, Callable]=cltypes.half8
+   half16:Union[np.dtype, Callable]=cltypes.half16
+   float2:Union[np.dtype, Callable]=cltypes.float2
+   float4:Union[np.dtype, Callable]=cltypes.float4
+   float8:Union[np.dtype, Callable]=cltypes.float8
+   float16:Union[np.dtype, Callable]=cltypes.float16
+   double2:Union[np.dtype, Callable]=cltypes.double2
+   double4:Union[np.dtype, Callable]=cltypes.double4
+   double8:Union[np.dtype, Callable]=cltypes.double8
+   double16:Union[np.dtype, Callable]=cltypes.double16
 
-
-@dataclass
+@dataclass(frozen=True)
 class ClTypesScalar:
-    char: np.dtype = cltypes.char
-    short: np.dtype = cltypes.short
-    int: np.dtype = cltypes.int
-    long: np.dtype = cltypes.long
-    uchar: np.dtype = cltypes.uchar
-    ushort: np.dtype = cltypes.ushort
-    uint: np.dtype = cltypes.uint
-    ulong: np.dtype = cltypes.ulong
-    half: np.dtype = cltypes.half
-    float: np.dtype = cltypes.float
-    double: np.dtype = cltypes.double
+   char:Union[np.dtype, Callable]=cltypes.char
+   short:Union[np.dtype, Callable]=cltypes.short
+   int:Union[np.dtype, Callable]=cltypes.int
+   long:Union[np.dtype, Callable]=cltypes.long
+   uchar:Union[np.dtype, Callable]=cltypes.uchar
+   ushort:Union[np.dtype, Callable]=cltypes.ushort
+   uint:Union[np.dtype, Callable]=cltypes.uint
+   ulong:Union[np.dtype, Callable]=cltypes.ulong
+   half:Union[np.dtype, Callable]=cltypes.half
+   float:Union[np.dtype, Callable]=cltypes.float
+   double:Union[np.dtype, Callable]=cltypes.double
 
-
-@dataclass
+@dataclass(frozen=True)
 class _ClTypes(ClTypesScalar, ClTypesVector):
-    pass
+   pass

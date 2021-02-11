@@ -621,7 +621,7 @@ def unparse_c_code_to_python(code_c: str) -> str:
 from typing import Tuple
 from pyopencl_extension.emulation import cl_kernel, WorkItem, local_memory
 from pyopencl_extension.types.funcs_for_emulation import *
-from pyopencl_extension.types.utilities_np_cl import ClTypes, c_to_np_type_name_catch
+from pyopencl_extension.types.utilities_np_cl import Types, c_to_np_type_name_catch
 import numpy as np
             """
     module_py.append(header)

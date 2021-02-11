@@ -14,15 +14,15 @@ auto_gen_dir = Path(__file__).parent
 
 def setup_file_cl_types():
     # preamble_typedefs_np_c = '\n'.join([f'{v} = np.dtype(\'{k}\').type' for k, v in np_to_c_type_name.items()])
-    fields = '\n'.join([f'   {t}:np.dtype=cltypes.{t}' for t in all_vec_number_types])
-    class_def1 = '@dataclass\n' \
+    fields = '\n'.join([f'   {t}:Union[np.dtype, Callable]=cltypes.{t}' for t in all_vec_number_types])
+    class_def1 = '@dataclass(frozen=True)\n' \
                  'class ClTypesVector:\n' + fields + '\n'
 
-    fields = '\n'.join([f'   {t}:np.dtype=cltypes.{t}' for t in all_scalar_number_types])
-    class_def2 = '@dataclass\n' \
+    fields = '\n'.join([f'   {t}:Union[np.dtype, Callable]=cltypes.{t}' for t in all_scalar_number_types])
+    class_def2 = '@dataclass(frozen=True)\n' \
                  'class ClTypesScalar:\n' + fields + '\n'
 
-    class_def3 = '@dataclass\n' \
+    class_def3 = '@dataclass(frozen=True)\n' \
                  'class _ClTypes(ClTypesScalar, ClTypesVector):\n' \
                  '   pass' + '\n'
 
@@ -30,7 +30,8 @@ def setup_file_cl_types():
 
     import_cltypes = 'from pyopencl_extension.modifications_pyopencl import cltypes\n' \
                      'from dataclasses import dataclass\n' \
-                     'import numpy as np\n'
+                     'import numpy as np\n' \
+                     'from typing import Callable, Union\n'
     content = '\n'.join([import_cltypes, class_defs])
     with open(auto_gen_dir.joinpath('cl_types.py'), 'w+') as file:
         file.write(content)

@@ -1,4 +1,5 @@
 import re as re
+from typing import Union, Callable
 
 import numpy as np
 
@@ -45,9 +46,9 @@ def c_to_np_type_name_catch(c_name):
         return c_name
 
 
-class ClTypes(_ClTypes):
-    cfloat: np.dtype = np.dtype(np.complex64)
-    cdouble: np.dtype = np.dtype(np.complex128)
+class Types(_ClTypes):
+    cfloat: Union[np.dtype, Callable] = np.dtype(np.complex64)
+    cdouble: Union[np.dtype, Callable] = np.dtype(np.complex128)
 
 
 VEC_INDICES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 'A', 'B', 'C', 'D', 'E', 'F']
@@ -78,7 +79,7 @@ def c_name_from_dtype(dtype: np.dtype) -> str:
 
 
 def dtype_from_c_name(c_name: str):
-    return getattr(ClTypes, c_name)
+    return getattr(Types, c_name)
 
 
 def dtype_to_c_name(dtype):
@@ -90,7 +91,7 @@ def scalar_type_from_vec_type(dtype: np.dtype) -> np.dtype:
         return dtype
     else:
         c_vec_name = c_name_from_dtype(dtype)
-        return getattr(ClTypes, re.search(r'([a-z]+)([\d]+)', c_vec_name).group(1))
+        return getattr(Types, re.search(r'([a-z]+)([\d]+)', c_vec_name).group(1))
 
 
 def number_vec_elements_of_cl_type(dtype: np.dtype) -> int:
@@ -121,7 +122,7 @@ def match_vec_size(desired_type: np.dtype, match_vec_type: np.dtype) -> np.dtype
 
 
 def b_is_whole_number(t: np.dtype) -> bool:
-    return scalar_type_from_vec_type(t) not in [ClTypes.float, ClTypes.double]
+    return scalar_type_from_vec_type(t) not in [Types.float, Types.double]
 
 
 def match_integer_type_for_select(dtype: np.dtype):
@@ -160,14 +161,14 @@ def scalar_to_vector_type_array(ary: np.ndarray, vec_size: int = 1):
 
 def is_signed_integer_type(dtype: np.dtype) -> bool:
     scalar_dtype = scalar_type_from_vec_type(dtype)
-    if scalar_dtype in [ClTypes.char, ClTypes.short, ClTypes.int, ClTypes.long]:
+    if scalar_dtype in [Types.char, Types.short, Types.int, Types.long]:
         return True
     else:
         return False
 
 
 def is_complex_type(dtype: np.dtype):
-    if dtype in [ClTypes.cfloat, ClTypes.cdouble]:
+    if dtype in [Types.cfloat, Types.cdouble]:
         return True
     else:
         return False
@@ -187,7 +188,7 @@ def defines_generic_operations(cl_code, generic_type: np.dtype):
         #define RMUL c${cplx_type}_rmul
         #define NEW c${cplx_type}_new
         #define CONJ c${cplx_type}_conj
-        """.replace('${cplx_type}', 'float' if generic_type is ClTypes.cfloat else 'double')
+        """.replace('${cplx_type}', 'float' if generic_type is Types.cfloat else 'double')
     else:
         preample_real_operations = """
         #define MUL c${cplx_type}_mul
@@ -197,6 +198,6 @@ def defines_generic_operations(cl_code, generic_type: np.dtype):
         #define RMUL c${cplx_type}_rmul
         #define NEW c${cplx_type}_new
         #define CONJ c${cplx_type}_conj
-        """.replace('${cplx_type}', 'float' if generic_type is ClTypes.cfloat else 'double')
+        """.replace('${cplx_type}', 'float' if generic_type is Types.cfloat else 'double')
 
     return cl_code

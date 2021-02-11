@@ -4,8 +4,8 @@ import numpy as np
 from pyopencl.array import to_device, empty_like, empty
 from scipy.signal import fftconvolve
 
-from pyopencl_extension import ClInit, ClTypes, ClKernel, KnlArgBuffer, Profiling, ClHelpers, ClFunction, ArgBuffer, \
-    ArgScalar
+from pyopencl_extension import Thread, Types, Kernel, Global, Profiling, ClHelpers, Function, Global, \
+    Scalar
 from pyopencl_extension.components.convolve import Convolution1D
 
 
@@ -20,9 +20,9 @@ def get_fft_function(size_input, type_input, n_axes):
                }
     typedefs = {'cplx_t': type_input}
     # Work group size is assumed to be N
-    func = ClFunction('radix2_fft',
-                      {'x': ArgBuffer(type_input),
-                       'i_x': ArgScalar(ClTypes.int)
+    func = Function('radix2_fft',
+                    {'x': Global(type_input),
+                       'i_x': Scalar(Types.int)
                        },
                       """
                local cplx_t[N_INPUTS] a;
@@ -37,15 +37,15 @@ def get_fft_function(size_input, type_input, n_axes):
                     b[i_x] = a[i_x+1] + a[i_x];
                }
                """,
-                      defines=defines,
-                      type_defs=typedefs)
+                    defines=defines,
+                    type_defs=typedefs)
     return local_size_last
 
 def test_cl_fft():
     # initialize context and queue
-    cl_init = ClInit()
-    queue = cl_init.queue
-    signal_t = ClTypes.int
+    thread = Thread()
+    queue = thread.queue
+    signal_t = Types.int
     x = to_device(queue, (10 * (np.random.random((1000000,)) - 0.5)).astype(signal_t))
     get_fft_function(1024)
 
@@ -54,10 +54,10 @@ def test_convolution():
     n_repetitions = 10
 
     # initialize context and queue
-    cl_init = ClInit(b_profiling_enable=True)
-    queue = cl_init.queue
+    thread = Thread(b_profiling_enable=True)
+    queue = thread.queue
 
-    signal_t = ClTypes.int
+    signal_t = Types.int
     x = to_device(queue, (10 * (np.random.random((1000000,)) - 0.5)).astype(signal_t))
     h = to_device(queue, (10 * (np.random.random((1000,)) - 0.5)).astype(signal_t))
     convolve = Convolution1D(x, h)
@@ -82,4 +82,4 @@ def test_convolution():
     performance_improvement = np_t / cl_t
     assert np.allclose(convolve.out_buffer.get(), np_y, atol=1e-7)
 
-    Profiling(queue).show_histogram_cumulative_kernel_times()
+    #Profiling(queue).show_histogram_cumulative_kernel_times()

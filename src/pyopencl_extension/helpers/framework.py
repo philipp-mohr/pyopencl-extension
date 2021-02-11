@@ -1,6 +1,6 @@
 from typing import Union
 from pyopencl_extension.types.utilities_np_cl import *
-from pyopencl_extension import ClInit
+from pyopencl_extension import Thread
 import re
 
 __author__ = "piveloper"
@@ -35,7 +35,7 @@ class ClHelpers:
             return dtype_scalar
         else:
             c_name = '{}{}'.format(c_name_from_dtype(dtype_scalar), number_vec_elements_of_cl_type(dtype_vec))
-            return getattr(ClTypes, c_name)
+            return getattr(Types, c_name)
 
     @staticmethod
     def array_indexing_for_vec_type(array: str, index: str, dtype: np.dtype):
@@ -133,7 +133,7 @@ class ClHelpers:
         # return None
 
     @staticmethod
-    def get_local_size_coalesced_last_dim(global_size, cl_init: ClInit):
+    def get_local_size_coalesced_last_dim(global_size, thread: Thread):
         """
         If global size is no multiple of the local size, according to following link it should not work.
         https://community.khronos.org/t/opencl-ndrange-global-size-local-size/4167
@@ -142,8 +142,8 @@ class ClHelpers:
         size is not necessarily a multiple.
 
         :param global_size:
-        :param cl_init:
+        :param thread:
         :return:
         """
-        desired_wg_size = 4 * cl_init.device.global_mem_cacheline_size
+        desired_wg_size = 4 * thread.device.global_mem_cacheline_size
         return ClHelpers._get_local_size_coalesced_last_dim(global_size, desired_wg_size)

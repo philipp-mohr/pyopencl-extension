@@ -8,13 +8,12 @@ import numpy as np
 import pyastyle
 from mako import exceptions
 from mako.template import Template
-from pyopencl import Program, create_some_context
-from pyopencl._cl import CommandQueue, Kernel, Context, get_platforms, device_type, Device, command_queue_properties
+import pyopencl as cl
 from pyopencl.array import Array, to_device
 
 from pyopencl_extension.helpers.general import write_string_to_file
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
-    get_vec_size, ClTypes
+    get_vec_size, Types
 from pyopencl_extension.emulation import create_py_file_and_load_module, unparse_c_code_to_python
 
 __author__ = "piveloper"
@@ -114,7 +113,7 @@ class QueueProperties:
     PROFILING_ENABLE: int = 2
 
 
-class CommandQueueExtended(CommandQueue):
+class CommandQueueExtended(cl.CommandQueue):
     def __init__(self, context, device=None, properties=0):
         super().__init__(context, device, properties)
         self.events = []
@@ -125,7 +124,7 @@ class CommandQueueExtended(CommandQueue):
 
 class Profiling:
     def __init__(self, queue: CommandQueueExtended):
-        if queue.properties == command_queue_properties.PROFILING_ENABLE:
+        if queue.properties == cl.command_queue_properties.PROFILING_ENABLE:
             self.queue = queue
             self.events = queue.events
         else:
@@ -163,8 +162,8 @@ class Profiling:
 
 
 @dataclass
-class ClInit:
-    context: Context = None
+class Thread:
+    context: cl.Context = None
     queue: CommandQueueExtended = None
     b_compiler_output: bool = True
     # https://stackoverflow.com/questions/29068229/is-there-a-way-to-profile-an-opencl-or-a-pyopencl-program
@@ -172,16 +171,16 @@ class ClInit:
     queue_properties: int = QueueProperties.DEFAULT
 
     @property
-    def device(self) -> Device:
+    def device(self) -> cl.Device:
         return self.context.devices[0]
 
     @staticmethod
-    def from_buffer(buffer: Array) -> 'ClInit':
-        return ClInit(queue=buffer.queue, context=buffer.context)
+    def from_buffer(buffer: Array) -> 'Thread':
+        return Thread(queue=buffer.queue, context=buffer.context)
 
     def __post_init__(self):
         if self.context is None:
-            self.context = create_some_context()
+            self.context = cl.create_some_context()
         if self.queue is None:
             if self.b_profiling_enable:
                 self.queue = CommandQueueExtended(self.context, properties=QueueProperties.PROFILING_ENABLE)
@@ -194,13 +193,13 @@ class ClInit:
             os.environ['PYOPENCL_COMPILER_OUTPUT'] = '0'
 
 
-def get_device(device: Tuple[int, int]) -> Device:
-    platform = get_platforms()
-    my_gpu_devices = [platform[device[0]].get_devices(device_type=device_type.GPU)[device[1]]][0]
+def get_device(device: Tuple[int, int]) -> cl.Device:
+    platform = cl.get_platforms()
+    my_gpu_devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]][0]
     return my_gpu_devices
 
 
-def get_cl_init(device: Tuple[int, int], b_profiling_enable=False) -> ClInit:
+def get_thread(device: Tuple[int, int], b_profiling_enable=False) -> Thread:
     """
     On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
 
@@ -214,18 +213,18 @@ def get_cl_init(device: Tuple[int, int], b_profiling_enable=False) -> ClInit:
     :return: A container class with context and queue pointing to selected device.
     """
     if device[0] == 'some_context':
-        context = create_some_context()
+        context = cl.create_some_context()
     else:
-        platform = get_platforms()
+        platform = cl.get_platforms()
         try:
-            my_gpu_devices = [platform[device[0]].get_devices(device_type=device_type.GPU)[device[1]]]
+            my_gpu_devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]]
         except:
             try:
                 my_gpu_devices = platform[device[0]].get_devices()
             except:
                 raise ValueError('No matching device found')
-        context = Context(devices=my_gpu_devices)
-    return ClInit(context, b_profiling_enable=b_profiling_enable)
+        context = cl.Context(devices=my_gpu_devices)
+    return Thread(context, b_profiling_enable=b_profiling_enable)
 
 
 def catch_invalid_argument_name(name: str):
@@ -268,28 +267,41 @@ class ArgBase(ABC):
 
     def to_string(self, name):
         new_name = catch_invalid_argument_name(name)
-        if type(self) in [ArgScalar, KnlArgScalar]:  # scalar
+        if type(self) in [Scalar, Scalar]:  # scalar
             return '{} {} {}'.format(self.address_space_qualifier, c_name_from_dtype(self.dtype), new_name)
         else:  # array
             return '{} {} *{}'.format(self.address_space_qualifier, c_name_from_dtype(self.dtype), new_name)
 
 
+ScalarArgTypes = Union[str, float, int, bool]
+
+
 @dataclass
-class ArgScalar(ArgBase):
-    dtype: np.dtype = field(default=ClTypes.int)
-    b_scalar: bool = field(init=False, default=True)
+class Scalar(ArgBase):
+    dtype: np.dtype = field(default=Types.int)
     address_space_qualifier: str = field(default='')
+    default: np.dtype = field(init=False, default=None)
+
+    def __post_init__(self):
+        if np.isscalar(self.dtype):
+            self.default = self.dtype
+            if type(self.default) == float:
+                self.dtype = Types.double
+            elif type(self.default) == int:
+                self.dtype = Types.int
+            else:
+                self.dtype = type(self.dtype)
 
 
 @dataclass
-class ArgPrivate(ArgBase):
-    dtype: np.dtype = field(default=ClTypes.int)
+class Private(ArgBase):
+    dtype: np.dtype = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__private')
 
 
 @dataclass
-class ArgLocal(ArgBase):
-    dtype: np.dtype = field(default=ClTypes.int)
+class Local(ArgBase):
+    dtype: np.dtype = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__local')
 
 
@@ -301,7 +313,7 @@ class ArgConstant(ArgBase):
     multiple compute units. From AMD optimization guide, e.g. we can read 4 bytes/cycles.
     Local memory can be ready twice as fast with 8bytes/cycle, however local memory is a even more scarce resource.
     """
-    dtype: np.dtype = field(default=ClTypes.int)
+    dtype: np.dtype = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__constant')
 
 
@@ -311,10 +323,11 @@ class ArgConstant(ArgBase):
 
 
 @dataclass
-class ArgBuffer(ArgBase):
-    dtype: Union[np.dtype, Array] = field(default=ClTypes.int)
+class Global(ArgBase):
+    dtype: Union[np.dtype, Array] = field(default=Types.int)
     address_space_qualifier: str = field(default='')
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
+    b_return_buffer: bool = field(default=False)
     default: Array = field(init=False, default='')
 
     def __post_init__(self):
@@ -325,65 +338,10 @@ class ArgBuffer(ArgBase):
             self.address_space_qualifier = '__global {}'.format(self.address_space_qualifier)
 
 
-ScalarArgTypes = Union[str, float, int, bool]
-
 KnlArgTypes = Union[Array, ScalarArgTypes]
 
 
-@dataclass
-class KnlArgScalar(ArgBase):
-    dtype: np.dtype = None
-    default: ScalarArgTypes = None
-    address_space_qualifier: str = field(init=False, default='')
-
-    def __post_init__(self):
-        if self.dtype is None:
-            if self.default is None:
-                raise ValueError('Either default buffer or dtype must be provided')
-            if type(self.default) == float:
-                self.dtype = ClTypes.double
-            elif type(self.default) == int:
-                self.dtype = ClTypes.int
-            else:
-                raise NotImplementedError(f'Automatic scalar conversion for type {type(self.default)} is not supported')
-
-
-# will be depricated soon. Use Global instead.
-@dataclass
-class KnlArgBuffer(ArgBuffer):
-    default: Array = None
-    address_space_qualifier: str = field(default='')
-    b_return_buffer: bool = field(default=False)
-    dtype: np.dtype = None  # if None extracted from default array
-    order_in_memory: str = OrderInMemory.C_CONTIGUOUS
-
-    def __post_init__(self):
-        if self.address_space_qualifier != '__constant':
-            self.address_space_qualifier = '__global {}'.format(self.address_space_qualifier)
-        if self.dtype is None:
-            if self.default is None:
-                raise ValueError('Either default buffer or dtype must be provided')
-            self.dtype = self.default.dtype
-
-
-# todo: use shorter type name
-
-@dataclass
-class Scalar(ArgScalar):
-    pass
-
-
-@dataclass
-class Local(ArgLocal):
-    pass
-
-
-@dataclass
-class Global(ArgBuffer):
-    pass
-
-
-def template(func: Union['ClKernel', 'ClFunction']) -> str:
+def template(func: Union['Kernel', 'Function']) -> str:
     body = func.body if type(func.body) == str else ''.join(func.body)
     tpl = func.header + '\n{' + body + '}\n'
     args = [value.to_string(key) + ',' for key, value in func.args.items()]
@@ -417,12 +375,12 @@ class ClFunctionBase(ABC):
 
 
 @dataclass
-class ClFunction(ClFunctionBase):
+class Function(ClFunctionBase):
     @property
     def template(self) -> str:
         return template(self)
 
-    args: Dict[str, Union[ArgScalar, ArgBuffer, ArgLocal, ArgPrivate, ArgConstant]] = field(default_factory=lambda: [])
+    args: Dict[str, Union[Scalar, Global, Local, Private, ArgConstant]] = field(default_factory=lambda: [])
     body: Union[List[str], str] = field(default_factory=lambda: [])
     replacements: Dict[str, Union[str, float, int, bool]] = field(default_factory=lambda: {})
     return_type: np.dtype = field(default_factory=lambda: np.dtype(np.void))
@@ -440,17 +398,17 @@ KnlReplacementTypes = Union[str, float, int, bool]
 
 class Compilable:
     @abstractmethod
-    def compile(self, cl_init: ClInit, b_python: bool = False):
+    def compile(self, thread: Thread, b_python: bool = False):
         pass
 
 
 @dataclass
-class ClKernel(ClFunctionBase, Compilable):
-    def compile(self, cl_init, b_python: bool = False, file='$default_path'):
-        return ClProgram(kernels=[self]).compile(cl_init=cl_init, b_python=b_python, file=file).__getattr__(self.name)
-        # return compile_cl_kernel(self, cl_init, b_python=b_python, file=file)
+class Kernel(ClFunctionBase, Compilable):
+    def compile(self, thread, b_python: bool = False, file='$default_path'):
+        return Program(kernels=[self]).compile(thread=thread, b_python=b_python, file=file).__getattr__(self.name)
+        # return compile_cl_kernel(self, thread, b_python=b_python, file=file)
 
-    args: Dict[str, Union[np.ndarray, KnlArgBuffer, KnlArgScalar, ArgScalar, ArgBuffer]] = field(
+    args: Dict[str, Union[np.ndarray, Global, Scalar, Scalar, Global]] = field(
         default_factory=lambda: [])
     body: Union[List[str], str] = field(default_factory=lambda: [])
     replacements: Dict[str, KnlReplacementTypes] = field(default_factory=lambda: {})
@@ -477,18 +435,18 @@ class ClKernel(ClFunctionBase, Compilable):
 
 
 @dataclass
-class ClProgram(Compilable):
+class Program(Compilable):
     """
     Models an OpenCl Program containing functions or kernels.
     """
 
-    def compile(self, cl_init: ClInit, b_python: bool = False,
+    def compile(self, thread: Thread, b_python: bool = False,
                 file: str = '$default_path') -> 'ProgramContainer':
 
-        return compile_cl_program(self, cl_init, b_python, file)
+        return compile_cl_program(self, thread, b_python, file)
 
-    functions: List[ClFunction] = field(default_factory=lambda: [])
-    kernels: List[ClKernel] = field(default_factory=lambda: [])
+    functions: List[Function] = field(default_factory=lambda: [])
+    kernels: List[Kernel] = field(default_factory=lambda: [])
     defines: Dict[str, ScalarArgTypes] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})
 
@@ -543,11 +501,11 @@ class ClProgram(Compilable):
         return '{}\n\n{}\n\n{}\n\n{}\n\n'.format(preamble_complex, defines, type_defs, functions)
 
 
-def build_for_device(context: Context, template_to_be_compiled: str, file: str = None) -> Program:
+def build_for_device(context: cl.Context, template_to_be_compiled: str, file: str = None) -> cl.Program:
     if file is not None:
         write_string_to_file(template_to_be_compiled, file + '.cl', b_logging=False)
     try:
-        program = Program(context, str(template_to_be_compiled)).build()
+        program = cl.Program(context, str(template_to_be_compiled)).build()
     except Exception as error:
         tpl_line_numbers = '\n'.join(
             ['{:<4}{}'.format(i + 1, line) for i, line in enumerate(template_to_be_compiled.split('\n'))])
@@ -561,7 +519,7 @@ KernelCallReturnType = Union[Array, Tuple[Array, ...], None]
 # Todo: Find good structure for modeling cl and python kernels
 @dataclass
 class CallableKernel(ABC):
-    kernel_model: ClKernel
+    kernel_model: Kernel
 
     def __getattr__(self, name):
         if name in self.kernel_model.args.keys():
@@ -575,7 +533,7 @@ class CallableKernel(ABC):
         pass
 
     @staticmethod
-    def _typing_scalar_argument(arg_model: Union[KnlArgScalar, ArgScalar],
+    def _typing_scalar_argument(arg_model: Union[Scalar, Scalar],
                                 scalar_value_provided: ScalarArgTypes):
         if get_vec_size(arg_model.dtype) == 1:
             return np.dtype(arg_model.dtype).type(scalar_value_provided)
@@ -585,7 +543,7 @@ class CallableKernel(ABC):
             return scalar.astype(arg_model.dtype)  # converts to vector type
 
     @staticmethod
-    def _prepare_arguments(knl: ClKernel, **kwargs):
+    def _prepare_arguments(knl: Kernel, **kwargs):
         global_size = kwargs.pop('global_size', None)
         local_size = kwargs.pop('local_size', None)
         if global_size is None:
@@ -598,7 +556,7 @@ class CallableKernel(ABC):
             raise ValueError(
                 f'keyword argument {kw_not_in_kernel_arguments} does not exist in kernel argument list {supported_kws}')
         # set default arguments. Looping over kernel model forces correct order of arguments
-        args_call = [kwargs.pop(key, value.default if isinstance(value, (KnlArgBuffer, KnlArgScalar)) else None)
+        args_call = [kwargs.pop(key, value.default if isinstance(value, (Global, Scalar)) else None)
                      for key, value in knl.args.items()]
         if any(arg is None for arg in args_call):
             raise ValueError('Argument equal to None can lead to system crash')
@@ -614,13 +572,13 @@ class CallableKernel(ABC):
         # convert scalar argument to correct type. E.g. argument can be python int and is converted to char
         args_model = list(knl.args.values())
         args_call = [CallableKernel._typing_scalar_argument(args_model[i], arg)
-                     if type(args_model[i]) in [KnlArgScalar, ArgScalar] else arg
+                     if type(args_model[i]) in [Scalar, Scalar] else arg
                      for i, arg in enumerate(args_call)]
         # check if buffer have same type as defined in the kernel function header
-        b_types_equal = [args_call[i].dtype == v.dtype for i, v in enumerate(args_model) if isinstance(v, KnlArgBuffer)]
+        b_types_equal = [args_call[i].dtype == v.dtype for i, v in enumerate(args_model) if isinstance(v, Global)]
         if not np.all(b_types_equal):
             idx_buffer_list = int(np.argmin(b_types_equal))
-            idx = [i for i, kv in enumerate(knl.args.items()) if isinstance(kv[1], KnlArgBuffer)][idx_buffer_list]
+            idx = [i for i, kv in enumerate(knl.args.items()) if isinstance(kv[1], Global)][idx_buffer_list]
             buffer_name = [k for k, v in knl.args.items()][idx]
             buffer_type_expected = args_model[idx].dtype
             buffer_type_call = args_call[idx].dtype
@@ -628,17 +586,17 @@ class CallableKernel(ABC):
                              f'but got buffer with type {buffer_type_call}')
 
         # check if buffer elements of array arguments have memory order as expected (c or f contiguous)
-        def b_array_memory_order_as_expected(ary_model: KnlArgBuffer, ary_call: Array):
+        def b_array_memory_order_as_expected(ary_model: Global, ary_call: Array):
             if ary_model.order_in_memory == OrderInMemory.C_CONTIGUOUS:
                 return ary_call.flags.c_contiguous
             else:  # f_contiguous
                 return ary_call.flags.f_contiguous
 
         knl_args_invalid_memory_order = [(k, v) for idx, (k, v) in enumerate(knl.args.items())
-                                         if isinstance(v, KnlArgBuffer) and
+                                         if isinstance(v, Global) and
                                          not b_array_memory_order_as_expected(v, args_call[idx])]
         if len(knl_args_invalid_memory_order) > 0:
-            msg = '\n'.join([f'Array argument \'{arg[0]}\' is not {arg[1].order_in_memory} (as defined in ClKernel)'
+            msg = '\n'.join([f'Array argument \'{arg[0]}\' is not {arg[1].order_in_memory} (as defined in Kernel)'
                              for arg in knl_args_invalid_memory_order])
             raise ValueError(msg)
         non_supported_types = [np.ndarray]
@@ -648,9 +606,9 @@ class CallableKernel(ABC):
         return global_size, local_size, args_call
 
     @staticmethod
-    def _extract_return_arguments_from_source_program(knl: ClKernel):
+    def _extract_return_arguments_from_source_program(knl: Kernel):
         args_model = list(knl.args.values())
-        return [arg.default for arg in args_model if type(arg) == KnlArgBuffer and arg.b_return_buffer]
+        return [arg.default for arg in args_model if type(arg) == Global and arg.b_return_buffer]
 
 
 @dataclass
@@ -678,7 +636,7 @@ class CallableKernelEmulation(CallableKernel):
 
 @dataclass
 class CallableKernelDevice(CallableKernel):
-    compiled: Kernel
+    compiled: cl.Kernel
     queue: CommandQueueExtended
 
     def __call__(self,
@@ -696,7 +654,7 @@ class CallableKernelDevice(CallableKernel):
         args_cl = [arg.data if isinstance(arg, Array) else arg for i, arg in enumerate(args)]
         event = self.compiled(queue, global_size, local_size, *args_cl)
 
-        if queue.properties == command_queue_properties.PROFILING_ENABLE:
+        if queue.properties == cl.command_queue_properties.PROFILING_ENABLE:
             if len(queue.events) < int(1e6):
                 queue.events.append((self.kernel_model.name, event))
             else:
@@ -718,9 +676,9 @@ class ProgramContainer:
     A callable kernel is returned with program.kernel_name. Depending on value of b_run_python_emulation a call of this
     kernel is executed on device or in emulation.
     """
-    program_model: ClProgram
+    program_model: Program
     file: str
-    init: ClInit
+    init: Thread
     callable_kernels: Dict[str, Union[CallableKernelEmulation, CallableKernelDevice]] = None
 
     def __getattr__(self, name) -> CallableKernel:
@@ -736,18 +694,18 @@ class MemoizeKernelFunctions:
         self.f = f
         self.memo = {}
 
-    def __call__(self, program_model: ClProgram, cl_init: ClInit, file: str = None):
+    def __call__(self, program_model: Program, thread: Thread, file: str = None):
         body = ''.join(program_model.rendered_template)
-        _id = hash(f'{cl_init.context.int_ptr}{cl_init.queue.int_ptr}{body}')
+        _id = hash(f'{thread.context.int_ptr}{thread.queue.int_ptr}{body}')
         if _id not in self.memo:
-            self.memo[_id] = self.f(program_model, cl_init, file)
+            self.memo[_id] = self.f(program_model, thread, file)
         return self.memo[_id]
 
 
 @MemoizeKernelFunctions
-def compile_cl_program_device(program_model: ClProgram, cl_init: ClInit = None, file: str = None) -> Dict[str, Kernel]:
-    context = cl_init.context
-    queue = cl_init.queue
+def compile_cl_program_device(program_model: Program, thread: Thread = None, file: str = None) -> Dict[str, Kernel]:
+    context = thread.context
+    queue = thread.queue
     code_cl = program_model.rendered_template
     program = build_for_device(context, code_cl, file)
     kernels_model = program_model.kernels
@@ -755,15 +713,15 @@ def compile_cl_program_device(program_model: ClProgram, cl_init: ClInit = None, 
     callable_kernels = {knl.function_name: knl
                         for i, knl in enumerate(program.all_kernels())}
     for i, knl in enumerate(kernels_model):
-        arg_types = [arg.dtype if type(arg) in [KnlArgScalar, ArgScalar] else None
+        arg_types = [arg.dtype if type(arg) in [Scalar, Scalar] else None
                      for _, arg in kernels_model[i].args.items()]
         callable_kernels[knl.name].set_scalar_arg_dtypes(arg_types)
     return callable_kernels
 
 
 @MemoizeKernelFunctions
-def compile_cl_program_emulation(program_model: ClProgram, cl_init: ClInit, file: str = None) -> Dict[str,
-                                                                                                      Callable]:
+def compile_cl_program_emulation(program_model: Program, thread: Thread, file: str = None) -> Dict[str,
+                                                                                                    Callable]:
     code_py = unparse_c_code_to_python(program_model.rendered_template)
     module = create_py_file_and_load_module(code_py, file)
     kernels_model = program_model.kernels
@@ -771,7 +729,7 @@ def compile_cl_program_emulation(program_model: ClProgram, cl_init: ClInit, file
     return callable_kernels
 
 
-def compile_cl_program(program_model: ClProgram, cl_init: ClInit = None, b_python: bool = False,
+def compile_cl_program(program_model: Program, thread: Thread = None, b_python: bool = False,
                        file: str = '$default_path') -> ProgramContainer:
     # deal with file name
     if isinstance(file, Path):
@@ -783,34 +741,34 @@ def compile_cl_program(program_model: ClProgram, cl_init: ClInit = None, b_pytho
         file = str(Path(os.getcwd()).joinpath('py_cl_kernels').joinpath(program_model.kernels[0].name))
 
     # try to extract cl init from kernel buffer default arguments. This improves usability
-    if cl_init is None:
+    if thread is None:
         try:
             knl_arg_buffer = [v for k, v in program_model.kernels[0].args.items()
-                              if isinstance(v, KnlArgBuffer) and v.default is not None][0]
-            cl_init = ClInit(context=knl_arg_buffer.default.context, queue=knl_arg_buffer.default.queue)
+                              if isinstance(v, Global) and v.default is not None][0]
+            thread = Thread(context=knl_arg_buffer.default.context, queue=knl_arg_buffer.default.queue)
         except IndexError:  # when no default value is present index error is raised
-            cl_init = ClInit()
+            thread = Thread()
 
     # If kernel arguments are of type np.ndarray they are converted to cl arrays here
-    # This is done here, since cl_init is available at this point for sure.
+    # This is done here, since thread is available at this point for sure.
     for knl in program_model.kernels:
-        knl.args = {k: KnlArgBuffer(to_device(cl_init.queue, v)) if isinstance(v, np.ndarray) else v
+        knl.args = {k: Global(to_device(thread.queue, v)) if isinstance(v, np.ndarray) else v
                     for k, v in knl.args.items()}
-        knl.args = {k: KnlArgScalar(default=v) if isinstance(v, ScalarArgTypes.__args__) else v
+        knl.args = {k: Scalar(v) if isinstance(v, ScalarArgTypes.__args__) else v
                     for k, v in knl.args.items()}
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}
     if b_python:
-        dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, cl_init, file)
+        dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, thread, file)
         callable_kernels = {k: CallableKernelEmulation(kernel_model=dict_kernels_program_model[k], function=v)
                             for k, v in dict_emulation_kernel_functions.items()}
     else:
-        dict_device_kernel_functions = compile_cl_program_device(program_model, cl_init, file)
+        dict_device_kernel_functions = compile_cl_program_device(program_model, thread, file)
         callable_kernels = {k: CallableKernelDevice(kernel_model=dict_kernels_program_model[k], compiled=v,
-                                                    queue=cl_init.queue)
+                                                    queue=thread.queue)
                             for k, v in dict_device_kernel_functions.items()}
 
     return ProgramContainer(program_model=program_model,
                             file=file,
-                            init=cl_init,
+                            init=thread,
                             callable_kernels=callable_kernels)
