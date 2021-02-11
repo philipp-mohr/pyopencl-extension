@@ -244,6 +244,12 @@ def catch_invalid_argument_name(name: str):
 
 
 @dataclass
+class OrderInMemory:
+    C_CONTIGUOUS: str = 'c_contiguous'
+    F_CONTIGUOUS: str = 'f_contiguous'
+
+
+@dataclass
 class ArgBase(ABC):
     # too much restriction, shape of array might change during runtime
     # shape: Tuple[int, ...] = (1,)  # default: argument is scalar
@@ -299,22 +305,28 @@ class ArgConstant(ArgBase):
     address_space_qualifier: str = field(init=False, default='__constant')
 
 
-@dataclass
-class ArgBuffer(ArgBase):
-    dtype: np.dtype = field(default=ClTypes.int)
-    address_space_qualifier: str = field(default='')
-
-    def __post_init__(self):
-        if self.address_space_qualifier != '__constant':
-            self.address_space_qualifier = '__global {}'.format(self.address_space_qualifier)
-
-
 # @dataclass
 # class ArgGlobal(ArgBuffer):  # todo, rename all usages of ArgBuffer to
 #     pass
 
 
+@dataclass
+class ArgBuffer(ArgBase):
+    dtype: Union[np.dtype, Array] = field(default=ClTypes.int)
+    address_space_qualifier: str = field(default='')
+    order_in_memory: str = OrderInMemory.C_CONTIGUOUS
+    default: Array = field(init=False, default='')
+
+    def __post_init__(self):
+        if isinstance(self.dtype, Array):
+            self.default = self.dtype
+            self.dtype = self.dtype.dtype
+        if self.address_space_qualifier != '__constant':
+            self.address_space_qualifier = '__global {}'.format(self.address_space_qualifier)
+
+
 ScalarArgTypes = Union[str, float, int, bool]
+
 KnlArgTypes = Union[Array, ScalarArgTypes]
 
 
@@ -336,14 +348,9 @@ class KnlArgScalar(ArgBase):
                 raise NotImplementedError(f'Automatic scalar conversion for type {type(self.default)} is not supported')
 
 
+# will be depricated soon. Use Global instead.
 @dataclass
-class OrderInMemory:
-    C_CONTIGUOUS: str = 'c_contiguous'
-    F_CONTIGUOUS: str = 'f_contiguous'
-
-
-@dataclass
-class KnlArgBuffer(ArgBase):
+class KnlArgBuffer(ArgBuffer):
     default: Array = None
     address_space_qualifier: str = field(default='')
     b_return_buffer: bool = field(default=False)
@@ -357,6 +364,23 @@ class KnlArgBuffer(ArgBase):
             if self.default is None:
                 raise ValueError('Either default buffer or dtype must be provided')
             self.dtype = self.default.dtype
+
+
+# todo: use shorter type name
+
+@dataclass
+class Scalar(ArgScalar):
+    pass
+
+
+@dataclass
+class Local(ArgLocal):
+    pass
+
+
+@dataclass
+class Global(ArgBuffer):
+    pass
 
 
 def template(func: Union['ClKernel', 'ClFunction']) -> str:

@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from pyopencl import Program
 from pyopencl.array import zeros, zeros_like, to_device
-from pyopencl_extension import emulation, set_b_use_existing_file_for_emulation, ArgLocal, ArgBuffer
+from pyopencl_extension import emulation, set_b_use_existing_file_for_emulation, ArgLocal, ArgBuffer, Global, Local
 from pyopencl_extension import unparse_c_code_to_python, create_py_file_and_load_module, ClTypes, ClKernel, \
     KnlArgBuffer, ClFunction, ClProgram, ArgPrivate
 from pytest import mark
@@ -379,8 +379,8 @@ def test_vector_types(cl_init):  # todo use https://numpy.org/doc/stable/referen
 def test_local_barrier_inside_function(cl_init):
     func = ClFunction('shift_through_local_memory',
                       {
-                          'ary': ArgBuffer(ClTypes.int),
-                          'shared': ArgLocal(ClTypes.int)},
+                          'ary': Global(ClTypes.int),
+                          'shared': Local(ClTypes.int)},
                       """
                shared[get_global_id(0)] = ary[get_global_id(0)];
                barrier(CLK_LOCAL_MEM_FENCE);
@@ -392,7 +392,7 @@ def test_local_barrier_inside_function(cl_init):
     set_b_use_existing_file_for_emulation(False)
     knl = ClKernel('some_knl',
                    {
-                       'ary': KnlArgBuffer(ary),
+                       'ary': Global(ary),
                    },
                    """
                 __local int shared[2];
