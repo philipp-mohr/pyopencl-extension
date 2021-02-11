@@ -35,3 +35,17 @@ void FFT<2>( float2* v ) {
 int expand(int idxL, int N1, int N2 ){
     return (idxL/N1)*N1*N2 + (idxL%N1);
 }
+
+void exchange( float2* v, int R, int stride, int idxD, int incD, int idxS, int incS ){
+    float* sr = shared, *si = shared+T*R;
+    __syncthreads();
+    for( int r=0, ; r<R; r++ ) {
+        int i = (idxD + r*incD)*stride;
+        (sr[i], si[i]) = v[r];
+    }
+    __syncthreads();
+    for( r=0; r<R; r++ ) {
+        int i = (idxS + r*incS)*stride;
+        v[r] = (sr[i], si[i]);
+    }
+}
