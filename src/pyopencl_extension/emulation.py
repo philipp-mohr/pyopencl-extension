@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from pyopencl_extension.helpers.general import write_string_to_file
 
 # following lines are used to support functions from <pyopencl-complex.h>
 from pyopencl_extension.types.utilities_np_cl import is_vector_type
+
 
 preamble_buff_t_complex_np = lambda cplx_t: """
 {cplx_t}_mul = lambda x, y: {cplx_t}_t(x * y)
@@ -279,7 +281,7 @@ def _unparse(node: Node) -> Container:
                 type_cl = node.type.type.names[0]
             res = '{} = {}({})'.format(node.name, type_cl, _unparse(node.init))
     elif isinstance(node, ArrayDecl):
-        if len(node.type.quals) > 0 and node.type.quals[0] == '__local':
+        if len(node.type.quals) > 0 and node.type.quals[0] in ['local','__local']:
             res = "{name} = local_memory(wi, '{name}', lambda: init_array({dim}, {dtype}))".format(
                 name=_unparse(node.type),
                 dim=_unparse(node.dim),
@@ -437,10 +439,12 @@ class WorkItem:
         if self._local is None:
             idx = 0
             n_dim = len(self.global_size)
+            # Compute linear index for work group, to retrieve local memory of particular workgroup.
+            # All local memory is modeled by self.local_memory_collection
             for i in range(n_dim):
-                offset = 0
+                offset = 1
                 for j in range(i + 1, n_dim):
-                    offset += int(self.get_global_size(j) / self.get_local_size(j))
+                    offset *= int(self.get_global_size(j) / self.get_local_size(j))
                 idx += self.get_group_id(i) * offset
             self._local = self.local_memory_collection[idx]
         return self._local

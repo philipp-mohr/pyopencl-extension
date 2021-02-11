@@ -5,6 +5,7 @@ import math as math
 
 from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, Types, is_vector_type
 from pyopencl_extension.types.auto_gen.types_for_emulation import *
+import logging
 
 cfloat_t = np.dtype('complex64').type
 cdouble_t = np.dtype('complex128').type

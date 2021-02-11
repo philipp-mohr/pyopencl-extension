@@ -1,6 +1,7 @@
 from typing import Tuple, Any
 
 import numpy as np
+
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES
 import pyopencl_extension.modifications_pyopencl.cltypes as tp
 
@@ -224,12 +225,15 @@ class TypeHandlerScalar:
     """
     This class types scalar OpenCl types.
     """
-
     def __init__(self, dtype):
         self.dtype = dtype
 
     def __call__(self, arg):
-        return np.dtype(self.dtype).type(arg)
+        from pyopencl_extension.types.funcs_for_emulation import CArray
+        if isinstance(arg, CArray):
+            return arg.view(self.dtype)
+        else:
+            return np.dtype(self.dtype).type(arg)
 
 
 class TypeHandlerVec:
