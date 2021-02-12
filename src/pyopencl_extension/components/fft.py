@@ -186,6 +186,8 @@ class Fft:
                                  """,
                                  return_type=Types.int,
                                  defines={'STRIDE': 1})
+        # ----------------------------------------
+        # Definition of radix 2 - 16 functions:
         func_fft_radix_2 = Function('fft_radix_2',
                                     {'v': Private(data_t)},
                                     """
@@ -194,17 +196,8 @@ class Fft:
                                v[1] = v0 - v[1];
                                """)
         # mul_pxqy(a) returns a*exp(-j * PI * p / q) where p=x and q=y
-        defines['SQRT_1_2'] = np.cos(np.pi / 4)
-        mul_pxpy_dict = {'mul_p0q1': (_ := 'return a;'),
-                         'mul_p0q2': _,
-                         'mul_p0q4': _,
-                         'mul_p1q2': (_ := 'return (data_t)(a.y,-a.x);'),
-                         'mul_p2q4': _,
-                         'mul_p1q4': 'return (data_t)(SQRT_1_2)*(data_t)(a.x+a.y,-a.x+a.y);',
-                         'mul_p3q4': 'return (data_t)(SQRT_1_2)*(data_t)(-a.x+a.y,-a.x-a.y);',
-                         }
-        funcs_mulpxpy = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
-
+        mul_pxpy_dict = {'mul_p1q2': (mul_p1q2 := 'return (data_t)(a.y,-a.x);')}
+        funcs_mulpxpy_4 = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
         func_fft_radix_4 = Function('fft_radix_4',
                                     {'v': Private(data_t)},
                                     """
@@ -220,6 +213,16 @@ class Fft:
                 v[2] = v0 - v2;
                 v[3] = v1 - v3;
                                     """)
+        funcs_radix_4 = funcs_mulpxpy_4 + [func_fft_radix_4]
+
+        defines['SQRT_1_2'] = np.cos(np.pi / 4)
+        mul_pxpy_dict = {'mul_p0q2': (mul_p0q2 := 'return a;'),
+                         'mul_p0q4': mul_p0q2,
+                         'mul_p2q4': (mul_p2q4 := mul_p1q2),
+                         'mul_p1q4': (mul_p1q4 := 'return (data_t)(SQRT_1_2)*(data_t)(a.x+a.y,-a.x+a.y);'),
+                         'mul_p3q4': (mul_p3q4 := 'return (data_t)(SQRT_1_2)*(data_t)(-a.x+a.y,-a.x-a.y);'),
+                         }
+        funcs_mulpxpy_8 = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
         func_fft_radix_8 = Function('fft_radix_8',
                                     {'v': Private(data_t)},
                                     """
@@ -262,9 +265,82 @@ class Fft:
                 v[6] = u2 - u3;
                 v[7] = u6 - u7;
                                     """)
+        funcs_radix_8 = funcs_mulpxpy_8 + [func_fft_radix_8]
 
-        self.cl_program = Program([func_exchange, func_expand] + funcs_mulpxpy +
-                                  [func_fft_radix_2, func_fft_radix_4, func_fft_radix_8, func_fft_iteration],
+        func_mul1 = Function('mul_1',
+                             {'a': Scalar(data_t), 'b': Scalar(data_t)},
+                             'data_t x; x.even = MUL_RE(a,b); x.odd = MUL_IM(a,b); return x;', return_type=data_t,
+                             defines={'MUL_RE(a,b)': '(a.even*b.even - a.odd*b.odd)',
+                                      'MUL_IM(a,b)': '(a.even*b.odd + a.odd*b.even)'})
+
+        mul_pxpy_dict = {'mul_p0q8 ': mul_p0q2,
+                         'mul_p1q8': 'return mul_1((data_t)(COS_8,-SIN_8),a);',
+                         'mul_p2q8': mul_p1q4,
+                         'mul_p3q8': 'return mul_1((data_t)(SIN_8,-COS_8),a);',
+                         'mul_p4q8 ': mul_p2q4,
+                         'mul_p5q8': 'return mul_1((data_t)(-SIN_8,-COS_8),a);',
+                         'mul_p6q8': mul_p3q4,
+                         'mul_p7q8': 'return mul_1((data_t)(-COS_8,-SIN_8),a);'}
+        funcs_mulpxpy_16 = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
+        funcs_mulpxpy_16[0].defines = {'COS_8': np.cos(np.pi / 8), 'SIN_8': np.sin(np.pi / 8)}
+        func_fft_radix_16 = Function('fft_radix_16',
+                                     {'v': Private(data_t)},
+                                     """
+                data_t u[16];
+                for (int m=0;m<16;m++) u[m] = v[m];
+                // 8x in-place DFT2 and twiddle (1)
+                DFT2_TWIDDLE(u[0],u[8],mul_p0q8);
+                DFT2_TWIDDLE(u[1],u[9],mul_p1q8);
+                DFT2_TWIDDLE(u[2],u[10],mul_p2q8);
+                DFT2_TWIDDLE(u[3],u[11],mul_p3q8);
+                DFT2_TWIDDLE(u[4],u[12],mul_p4q8);
+                DFT2_TWIDDLE(u[5],u[13],mul_p5q8);
+                DFT2_TWIDDLE(u[6],u[14],mul_p6q8);
+                DFT2_TWIDDLE(u[7],u[15],mul_p7q8);
+                
+                // 8x in-place DFT2 and twiddle (2)
+                DFT2_TWIDDLE(u[0],u[4],mul_p0q4);
+                DFT2_TWIDDLE(u[1],u[5],mul_p1q4);
+                DFT2_TWIDDLE(u[2],u[6],mul_p2q4);
+                DFT2_TWIDDLE(u[3],u[7],mul_p3q4);
+                DFT2_TWIDDLE(u[8],u[12],mul_p0q4);
+                DFT2_TWIDDLE(u[9],u[13],mul_p1q4);
+                DFT2_TWIDDLE(u[10],u[14],mul_p2q4);
+                DFT2_TWIDDLE(u[11],u[15],mul_p3q4);
+                
+                // 8x in-place DFT2 and twiddle (3)
+                DFT2_TWIDDLE(u[0],u[2],mul_p0q2);
+                DFT2_TWIDDLE(u[1],u[3],mul_p1q2);
+                DFT2_TWIDDLE(u[4],u[6],mul_p0q2);
+                DFT2_TWIDDLE(u[5],u[7],mul_p1q2);
+                DFT2_TWIDDLE(u[8],u[10],mul_p0q2);
+                DFT2_TWIDDLE(u[9],u[11],mul_p1q2);
+                DFT2_TWIDDLE(u[12],u[14],mul_p0q2);
+                DFT2_TWIDDLE(u[13],u[15],mul_p1q2);
+                
+                // 8x DFT2 and store (reverse binary permutation)
+                v[0]  = u[0]  + u[1];
+                v[1]  = u[8]  + u[9];
+                v[2]  = u[4]  + u[5];
+                v[3]  = u[12] + u[13];
+                v[4]  = u[2]  + u[3];
+                v[5]  = u[10] + u[11];
+                v[6]  = u[6]  + u[7];
+                v[7]  = u[14] + u[15];
+                v[8]  = u[0]  - u[1];
+                v[9]  = u[8]  - u[9];
+                v[10] = u[4]  - u[5];
+                v[11] = u[12] - u[13];
+                v[12] = u[2]  - u[3];
+                v[13] = u[10] - u[11];
+                v[14] = u[6]  - u[7];
+                v[15] = u[14] - u[15];
+                                    """,
+                                     defines={'DFT2_TWIDDLE(a,b,t)': '{ data_t tmp = t(a-b); a += b; b = tmp; }'})
+        functions_radix_16 = [func_mul1] + funcs_mulpxpy_16 + [func_fft_radix_16]
+
+        funcs_radix = [func_fft_radix_2] + funcs_radix_4 + funcs_radix_8  + functions_radix_16
+        self.cl_program = Program(funcs_radix + [func_exchange, func_expand, func_fft_iteration],
                                   [knl_gpu_fft], defines=defines, type_defs=typedefs
                                   ).compile(Thread.from_buffer(in_buffer), b_python=self.b_python)
         self.N = N
@@ -283,31 +359,45 @@ data = np.random.normal(size=shape) + 1j * np.random.normal(size=shape)
 data = data.astype(Types.cdouble)
 
 
-# @mark.parametrize("in_data_np", [
-#     np.random.random((2, 2 ** 3,)).astype(Types.cdouble),
-#     (_ := np.arange((2 ** 8))).reshape((1, _.shape[0])).astype(Types.cdouble),
-#     np.random.random((50, 2 ** 16,)).astype(Types.cdouble),
-#     # np.sin(np.linspace(0, 10 * 2 * np.pi, 2 ** 8)).astype(ClTypes.cdouble),
-#     # np.arange(2 ** 3).astype(ClTypes.cfloat),
-# ])
-# def test_fft(in_data_np):
-def test_fft():
-    import numpy as np
+def in_data_complex_radix(radix=2, exponent=10):
     np.random.seed(0)
     in_data_np = np.random.random((50, 2 ** 16,)).astype(Types.cdouble)
-    in_data_np = np.random.random((50, 2 ** 16,)).astype(Types.cdouble)
-    in_data_np.imag = np.random.random(in_data_np.shape).astype(in_data_np.imag.dtype)
-    radix = 4
-    t_np = time.time()
-    fft_in_data_np = np.fft.fft(in_data_np, axis=-1)
-    t_np = time.time() - t_np
+    in_data_np = np.random.random((50, radix ** exponent,)).astype(Types.cdouble)
+    return in_data_np, radix
+
+
+@mark.parametrize("in_data", [
+    in_data_complex_radix(radix=16, exponent=3),
+    (np.random.random((2, 2 ** 3,)).astype(Types.cdouble), 2),
+    in_data_complex_radix(radix=2, exponent=10),
+    in_data_complex_radix(radix=4, exponent=5),
+    in_data_complex_radix(radix=8, exponent=4),
+    # ,
+    # in_data_complex_radix(radix=4, exponent=5),
+    # in_data_complex_radix(radix=8, exponent=4),
+])
+def test_fft(in_data):
+    import numpy as np
+    in_data_np = in_data[0]
+    radix = in_data[1]
+    attempts = 4
+
+    for i in range(attempts):
+        t_np = time.time()
+
+    ts = []
+    for i in range(attempts):
+        t1 = time.time()
+        fft_in_data_np = np.fft.fft(in_data_np, axis=-1)
+        t2 = time.time()
+        ts.append(t2 - t1)
+    t_np = min(ts)
 
     thread = Thread(b_profiling_enable=False)
     in_data_cl = to_device(thread.queue, in_data_np)
 
     fft_cl = Fft(in_data_cl, b_python=False, radix=radix)
 
-    attempts = 10
     ts = []
     for i in range(attempts):
         t1 = time.time()
@@ -334,30 +424,31 @@ def test_fft():
     assert np.allclose(fft_in_data_np, fft_in_data_cl.get())
 
     # benchmark using reikna
-    from reikna.cluda import any_api
-    from reikna.fft import FFT
-    import numpy
-    api = any_api()
-    thr = api.Thread.create()
-    data = in_data_np
-    dtype = data.dtype
-    axes = (1,)
-    fft = FFT(data, axes=axes)
-    fftc = fft.compile(thr)
-    data_dev = thr.to_device(data)
-    res_dev = thr.empty_like(data_dev)
-    ts = []
-    for i in range(attempts):
-        t1 = time.time()
-        fftc(res_dev, data_dev)
-        thr.synchronize()
-        t2 = time.time()
-        ts.append(t2 - t1)
-    fwd_ref = numpy.fft.fftn(data, axes=axes).astype(dtype)
-    tnp = time.time()
-    fwd_ref = numpy.fft.fftn(data, axes=axes).astype(dtype)
-    tnp = time.time() - tnp
-    # numpy.fft.fftn(data[:, :, 0], axes=(1,))
-    treikna_min = min(ts)
-    assert np.allclose(fft_in_data_np, res_dev.get())
+    if False:  # change to true to run against reikna's fft. Note: Reikna takes quite some optimization time before run
+        from reikna.cluda import any_api
+        from reikna.fft import FFT
+        import numpy
+        api = any_api()
+        thr = api.Thread.create()
+        data = in_data_np
+        dtype = data.dtype
+        axes = (1,)
+        fft = FFT(data, axes=axes)
+        fftc = fft.compile(thr)
+        data_dev = thr.to_device(data)
+        res_dev = thr.empty_like(data_dev)
+        ts = []
+        for i in range(attempts):
+            t1 = time.time()
+            fftc(res_dev, data_dev)
+            thr.synchronize()
+            t2 = time.time()
+            ts.append(t2 - t1)
+        fwd_ref = numpy.fft.fftn(data, axes=axes).astype(dtype)
+        tnp = time.time()
+        fwd_ref = numpy.fft.fftn(data, axes=axes).astype(dtype)
+        tnp = time.time() - tnp
+        # numpy.fft.fftn(data[:, :, 0], axes=(1,))
+        treikna_min = min(ts)
+        assert np.allclose(fft_in_data_np, res_dev.get())
     t = 0
