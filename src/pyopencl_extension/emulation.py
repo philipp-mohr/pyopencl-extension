@@ -26,7 +26,6 @@ from pyopencl_extension.helpers.general import write_string_to_file
 # following lines are used to support functions from <pyopencl-complex.h>
 from pyopencl_extension.types.utilities_np_cl import is_vector_type
 
-
 preamble_buff_t_complex_np = lambda cplx_t: """
 {cplx_t}_mul = lambda x, y: {cplx_t}_t(x * y)
 {cplx_t}_add = lambda x, y: {cplx_t}_t(x + y)
@@ -281,7 +280,7 @@ def _unparse(node: Node) -> Container:
                 type_cl = node.type.type.names[0]
             res = '{} = {}({})'.format(node.name, type_cl, _unparse(node.init))
     elif isinstance(node, ArrayDecl):
-        if len(node.type.quals) > 0 and node.type.quals[0] in ['local','__local']:
+        if len(node.type.quals) > 0 and node.type.quals[0] in ['local', '__local']:
             res = "{name} = local_memory(wi, '{name}', lambda: init_array({dim}, {dtype}))".format(
                 name=_unparse(node.type),
                 dim=_unparse(node.dim),
@@ -525,6 +524,9 @@ def cl_kernel(kernel):
 # test regex at https://regexr.com/
 regex_constant = re.compile(r'#define[ ]+([\w]+)[ ]+([\w\.\-e]+)')  # #define PI 3.14159265358979323846\n
 regex_func_def = re.compile(r'#define[ ]+([\w]+)\(([\w, ]+)\)[ ]+([\w\.\(\)*\-+/ ]+)')  # #define MUL(x,y) (x*y)\n
+
+# #define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }
+regex_func_def_multi_line = re.compile(r'(#define)([ ]+)([\w]+)(\()([\w, ]+)(\))([ ]+)(\{)(.+)(\})')
 regex_include = re.compile(r'#include[ ]+<([\w\-\.]+>)')  # '#include <pyopencl-complex.h>\n
 regex_numbers_with_conversion_characater = re.compile(r'([\d.]+)([fd])')
 
@@ -542,11 +544,10 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
     """
     contents = line.contents
 
-    if search(regex_numbers_with_conversion_characater, contents):
-        replacement = search(regex_numbers_with_conversion_characater, contents).group(1)
+    if res := search(regex_numbers_with_conversion_characater, contents):
+        replacement = res.group(1)
         contents = re.sub(regex_numbers_with_conversion_characater, replacement, contents)
-    if search(regex_constant, contents):
-        res = search(regex_constant, contents)
+    if res := search(regex_constant, contents):
         search_convert_t = re.search(r'(convert_)([\w]+)\((.*)\)', contents)
         if search_convert_t:  # catch case e.g. LLR_MAX convert_float(200.0)
             type_name = search_convert_t.group(2)
@@ -555,8 +556,7 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
             value = res.group(2)
         name = res.group(1)
         return '{} = {}'.format(name, value)  # 'PI = 3.14159265358979323846'
-    elif search(regex_func_def, contents):
-        res = search(regex_func_def, contents)
+    elif res := search(regex_func_def, contents):
         name = res.group(1)
         args = res.group(2)
         body = res.group(3)
@@ -628,7 +628,7 @@ def search_for_barrier(code_c, ast):
                             any(func['name'] in ''.join(code_c[_['start_line']:_['end_line']])
                                 for func in funcs_with_barrier)]
 
-    return [_['name'] for _ in funcs_with_barrier+funcs_nested_barrier if not _['is_kernel']]
+    return [_['name'] for _ in funcs_with_barrier + funcs_nested_barrier if not _['is_kernel']]
 
 
 def unparse_c_code_to_python(code_c: str) -> str:
@@ -641,6 +641,16 @@ def unparse_c_code_to_python(code_c: str) -> str:
     # remove block comments like /* some comment */ since other p.parse throws parsing error
     code_c = re.sub(r'\/\*(\*(?!\/)|[^*])*\*\/', '', code_c)
     code_c = code_c.replace('#pragma unroll', '')
+
+    # replace defines with functions
+    # e.g. '# define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }'
+    # becomes: 'void DFT2_TWIDDLE(a,b,t){ data_t tmp = t(a-b); a += b; b = tmp; }'
+    if search(regex_func_def_multi_line, code_c):
+        for _ in re.findall(regex_func_def_multi_line, code_c):
+            def_part_code_c = ''.join(_)
+            res = search(regex_func_def_multi_line, def_part_code_c)
+            func = f'void {res.group(3)}({res.group(5)}){{{res.group(9)}}}'
+            code_c = code_c.replace(def_part_code_c,func)
 
     from pyopencl_extension import preamble_activate_double
     from pyopencl_extension import preamble_activate_complex_numbers

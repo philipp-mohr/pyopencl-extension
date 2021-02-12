@@ -356,7 +356,9 @@ def template(func: Union['Kernel', 'Function']) -> str:
         tpl = Template(tpl).render(**replacements)
     except:
         raise ValueError(exceptions.text_error_template().render())
-    tpl_formatted = pyastyle.format(tpl, '--style=allman --indent=spaces=4')
+
+    defines = '\n'.join(['#define {} {}'.format(key, str(value)) for key, value in func.defines.items()])
+    tpl_formatted = pyastyle.format('{}\n\n{}'.format(defines, tpl), '--style=allman --indent=spaces=4')
     return tpl_formatted
 
 
@@ -481,8 +483,9 @@ class Program(Compilable):
         [update_and_checks_for_duplicates_same_type(func.type_defs, self.type_defs) for func in self.functions]
         [update_and_checks_for_duplicates_same_type(func.type_defs, self.type_defs) for func in self.kernels]
 
-        [update_and_checks_for_duplicates_same_type(func.defines, self.defines) for func in self.functions]
-        [update_and_checks_for_duplicates_same_type(func.defines, self.defines) for func in self.kernels]
+        # remove since defines are inserted before function/kernels
+        # [update_and_checks_for_duplicates_same_type(func.defines, self.defines) for func in self.functions]
+        # [update_and_checks_for_duplicates_same_type(func.defines, self.defines) for func in self.kernels]
 
         defines = '\n'.join(['#define {} {}'.format(key, str(value)) for key, value in self.defines.items()])
 
