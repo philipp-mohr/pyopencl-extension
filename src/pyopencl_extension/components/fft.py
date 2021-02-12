@@ -5,7 +5,7 @@ __author__ = "piveloper"
 __copyright__ = "10.02.2021, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
-__doc__ = """This module contains the FFT operation"""
+__doc__ = """This module contains the FFT operation. Radix 2 and """
 
 from pyopencl.array import zeros_like, Array, zeros
 from pytest import mark
@@ -18,11 +18,14 @@ import numpy as np
 
 class Fft:
     """
-    Implementation of reference algorithm [1, Fig. 2]
+    Implementation of reference algorithm [1, Fig. 2] (where only radix 2 kernel is provided)
+    A reference for higher radix kernels can be found in [2]
 
     [1] N. K. Govindaraju, B. Lloyd, Y. Dotsenko, B. Smith, und J. Manferdelli, „High performance discrete Fourier
     transforms on graphics processors“, in 2008 SC - International Conference for High Performance Computing,
     Networking, Storage and Analysis, Austin, TX, Nov. 2008, S. 1–12, doi: 10.1109/SC.2008.5213922.
+
+    [2] http://www.bealto.com/gpu-fft_opencl-2.html
     """
 
     def __call__(self, *args, **kwargs):
@@ -39,9 +42,8 @@ class Fft:
             data_in, data_out = data_out, data_in  # swap
         return data_in.view(self.in_buffer.dtype).reshape(self._out_shape)
 
-    def __init__(self, in_buffer: Array, b_python=False):
+    def __init__(self, in_buffer: Array, b_python=False, radix: int = 2):
         # just for debugging:
-        set_b_use_existing_file_for_emulation(True)
         self.b_python = b_python
 
         # fir internal data types to input data type
@@ -80,11 +82,13 @@ class Fft:
         data_out = zeros_like(data_in)
         typedefs = {'data_t': data_t,
                     'real_t': real_t}
-        T = min(int(N / 2), 4 * Thread.from_buffer(in_buffer).device.global_mem_cacheline_size)
-        defines = {'R': (R := 2),  # currently only Radix 2 fft is supported
+        R = radix
+        T = min(int(N / R), Thread.from_buffer(in_buffer).device.global_mem_cacheline_size)
+        defines = {'R': R,
                    'N': N,
                    'M': M,  # number of FFTs to perform simultaneously
-                   'T': T  # work group size)
+                   'T': T,  # work group size)
+                   'CW': (CW := Thread.from_buffer(in_buffer).device.global_mem_cacheline_size)  # Coalescing width
                    }
         knl_gpu_fft = Kernel('gpu_fft',
                              {'Ns': Scalar(Types.int),
@@ -94,11 +98,11 @@ class Fft:
                               'data_in': Global(data_in, '__const'),
                               'data_out': Global(data_out)},
                              """
-                 local real_t shared[2*T*R];
+                 local real_t shared[(int)(2*T*R)];//2*Ns];//T*R];
                  int t = get_local_id(2);
                  int b = get_global_id(1); 
                  int idx_butterfly = b*T + t;               
-                 if(idx_butterfly<(int)(N/2)){ // in case N/2 is not multiple of Threads T, deactivate certain work items
+                 if(idx_butterfly<(int)(N/R)){ // in case N/R is not multiple of Threads T, deactivate certain work items
                     int j = idx_butterfly; // as proposed in [1, p.3, text section A]
                     fft_iteration(j, Ns, data_in, data_out, shared);
                  }
@@ -126,31 +130,26 @@ class Fft:
         }
         ${fft_radix_R}(v);
         
-        /* According to [1, p.4] commented block is replaced below, such that global memory writes are coalesced
-        // changed line 27 of [1, Figure 2] to work with global dimensions of this class:
-        int idxD = offset_block + expand(j, Ns, R); // idxD=idxDestination
-        for(int r=0; r<R; r++)
-            data1[idxD + r*Ns] = v[r];
-        */ // Replaced with:
-        int b = get_global_id(1);
-        int t = get_local_id(2);
-        int idxD = (int)(t/Ns)*R + (t%Ns);
-        exchange( v, idxD, Ns, t, T, shared);
-        idxD = offset_block + b*R*T + t;
-        for( int r=0; r<R; r++ )
-            data1[idxD+r*T] = v[r];    
+        // According to [1, p.4] commented block is replaced below, such that global memory writes are coalesced
+        if(Ns>=CW){
+            // changed line 27 of [1, Figure 2] to work with global dimensions of this class:
+            int idxD = offset_block + expand(j, Ns, R); // idxD=idxDestination
+            for(int r=0; r<R; r++)
+                data1[idxD + r*Ns] = v[r];
+        }else{
+            int b = get_global_id(1);
+            int t = get_local_id(2);
+            // !! mistake in [1] where *Ns is missing: idxD = (int)(t/Ns)*R + (t%Ns); !!
+            int idxD = (int)(t/Ns)*Ns*R + (t%Ns);
+            exchange( v, idxD, Ns, t, T, shared);
+            idxD = offset_block + b*R*T + t;
+            for( int r=0; r<R; r++ )
+                data1[idxD+r*T] = v[r];  
+        }
                    """,
                                       replacements={
                                           'fft_radix_R': f'fft_radix_{R}'
                                       })
-        func_fft_radix_2 = Function('fft_radix_2',
-                                    {'v': Private(data_t)},
-                                    """
-                               data_t v0;
-                               v0= v[0];
-                               v[0] = v0 + v[1];
-                               v[1] = v0 - v[1];
-                               """)
         # [1]: The expand() function can be thought of as inserting a dimension of length N2 after the first
         # dimension of length N1 in a linearized index.
         func_expand = Function('expand',
@@ -171,8 +170,8 @@ class Fft:
                                   'shared': Local(real_t),
                                   },
                                  """
-                                __local float* sr = shared;
-                                __local float* si = shared+T*R;
+                                __local real_t* sr = shared; // vector with real part
+                                __local real_t* si = shared+T*R; // vector with imaginary part
                                 barrier(CLK_LOCAL_MEM_FENCE);
                                 for( int r=0; r<R; r++ ) {
                                     int i = (idxD + r*incD)*STRIDE;
@@ -187,8 +186,85 @@ class Fft:
                                  """,
                                  return_type=Types.int,
                                  defines={'STRIDE': 1})
+        func_fft_radix_2 = Function('fft_radix_2',
+                                    {'v': Private(data_t)},
+                                    """
+                               data_t v0= v[0];
+                               v[0] = v0 + v[1];
+                               v[1] = v0 - v[1];
+                               """)
+        # mul_pxqy(a) returns a*exp(-j * PI * p / q) where p=x and q=y
+        defines['SQRT_1_2'] = np.cos(np.pi / 4)
+        mul_pxpy_dict = {'mul_p0q1': (_ := 'return a;'),
+                         'mul_p0q2': _,
+                         'mul_p0q4': _,
+                         'mul_p1q2': (_ := 'return (data_t)(a.y,-a.x);'),
+                         'mul_p2q4': _,
+                         'mul_p1q4': 'return (data_t)(SQRT_1_2)*(data_t)(a.x+a.y,-a.x+a.y);',
+                         'mul_p3q4': 'return (data_t)(SQRT_1_2)*(data_t)(-a.x+a.y,-a.x-a.y);',
+                         }
+        funcs_mulpxpy = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
 
-        self.cl_program = Program([func_exchange, func_expand, func_fft_radix_2, func_fft_iteration],
+        func_fft_radix_4 = Function('fft_radix_4',
+                                    {'v': Private(data_t)},
+                                    """
+                // 2x DFT2 and twiddle
+                data_t v0 = v[0] + v[2];
+                data_t v1 = v[0] - v[2];
+                data_t v2 = v[1] + v[3];
+                data_t v3 = mul_p1q2(v[1] - v[3]); // twiddle
+                
+                // 2x DFT2 and store
+                v[0] = v0 + v2;
+                v[1] = v1 + v3;
+                v[2] = v0 - v2;
+                v[3] = v1 - v3;
+                                    """)
+        func_fft_radix_8 = Function('fft_radix_8',
+                                    {'v': Private(data_t)},
+                                    """
+                // 4x in-place DFT2
+                data_t u0 = v[0];
+                data_t u1 = v[1];
+                data_t u2 = v[2];
+                data_t u3 = v[3];
+                data_t u4 = v[4];
+                data_t u5 = v[5];
+                data_t u6 = v[6];
+                data_t u7 = v[7];
+                
+                data_t v0 = u0 + u4;
+                data_t v4 = mul_p0q4(u0 - u4);
+                data_t v1 = u1 + u5;
+                data_t v5 = mul_p1q4(u1 - u5);
+                data_t v2 = u2 + u6;
+                data_t v6 = mul_p2q4(u2 - u6);
+                data_t v3 = u3 + u7;
+                data_t v7 = mul_p3q4(u3 - u7);
+                
+                // 4x in-place DFT2 and twiddle
+                u0 = v0 + v2;
+                u2 = mul_p0q2(v0 - v2);
+                u1 = v1 + v3;
+                u3 = mul_p1q2(v1 - v3);
+                u4 = v4 + v6;
+                u6 = mul_p0q2(v4 - v6);
+                u5 = v5 + v7;
+                u7 = mul_p1q2(v5 - v7);
+                
+                // 4x DFT2 and store (reverse binary permutation)
+                v[0]   = u0 + u1;
+                v[1]   = u4 + u5;
+                v[2] = u2 + u3;
+                v[3] = u6 + u7;
+                v[4] = u0 - u1;
+                v[5] = u4 - u5;
+                v[6] = u2 - u3;
+                v[7] = u6 - u7;
+                                    """)
+
+        self.cl_program = Program([func_exchange, func_expand] + funcs_mulpxpy +
+                                  [func_fft_radix_2, func_fft_radix_4, func_fft_radix_8, func_fft_iteration],
                                   [knl_gpu_fft], defines=defines, type_defs=typedefs
                                   ).compile(Thread.from_buffer(in_buffer), b_python=self.b_python)
         self.N = N
@@ -207,16 +283,21 @@ data = np.random.normal(size=shape) + 1j * np.random.normal(size=shape)
 data = data.astype(Types.cdouble)
 
 
-@mark.parametrize("in_data_np", [
-    np.random.random((2, 2 ** 3,)).astype(Types.cdouble),
-    (_ := np.arange((2 ** 8))).reshape((1, _.shape[0])).astype(Types.cdouble),
-    np.random.random((50, 2 ** 16,)).astype(Types.cdouble),
-    # np.sin(np.linspace(0, 10 * 2 * np.pi, 2 ** 8)).astype(ClTypes.cdouble),
-    # np.arange(2 ** 3).astype(ClTypes.cfloat),
-])
-def test_fft(in_data_np):
+# @mark.parametrize("in_data_np", [
+#     np.random.random((2, 2 ** 3,)).astype(Types.cdouble),
+#     (_ := np.arange((2 ** 8))).reshape((1, _.shape[0])).astype(Types.cdouble),
+#     np.random.random((50, 2 ** 16,)).astype(Types.cdouble),
+#     # np.sin(np.linspace(0, 10 * 2 * np.pi, 2 ** 8)).astype(ClTypes.cdouble),
+#     # np.arange(2 ** 3).astype(ClTypes.cfloat),
+# ])
+# def test_fft(in_data_np):
+def test_fft():
     import numpy as np
     np.random.seed(0)
+    in_data_np = np.random.random((50, 2 ** 16,)).astype(Types.cdouble)
+    in_data_np = np.random.random((50, 2 ** 16,)).astype(Types.cdouble)
+    in_data_np.imag = np.random.random(in_data_np.shape).astype(in_data_np.imag.dtype)
+    radix = 4
     t_np = time.time()
     fft_in_data_np = np.fft.fft(in_data_np, axis=-1)
     t_np = time.time() - t_np
@@ -224,9 +305,9 @@ def test_fft(in_data_np):
     thread = Thread(b_profiling_enable=False)
     in_data_cl = to_device(thread.queue, in_data_np)
 
-    fft_cl = Fft(in_data_cl, b_python=False)
+    fft_cl = Fft(in_data_cl, b_python=False, radix=radix)
 
-    attempts = 2
+    attempts = 10
     ts = []
     for i in range(attempts):
         t1 = time.time()
@@ -237,11 +318,14 @@ def test_fft(in_data_np):
     t_cl = min(ts)
     if in_data_np.size < 512:
         # Test against emulation (commented since it is slower)
-        fft_cl_emulation = Fft(in_data_cl, b_python=True)
-        fft_in_data_cl_emulation = fft_cl_emulation()
-        assert np.allclose(fft_in_data_np, fft_in_data_cl_emulation.get().view(Types.double))
-        assert np.allclose(fft_in_data_cl_emulation.get().view(Types.double),
-                           fft_in_data_cl.get().view(Types.double))
+        set_b_use_existing_file_for_emulation(False)
+        fft_cl_py = Fft(in_data_cl, b_python=True, radix=radix)
+
+        fft_in_data_cl_py = fft_cl_py()
+        a = fft_in_data_cl_py.get().view(Types.cdouble)
+        b = fft_in_data_cl.get().view(Types.cdouble)
+        assert np.allclose(a, b)
+        assert np.allclose(fft_in_data_np.view(Types.double), fft_in_data_cl_py.get().view(Types.double))
 
     # import matplotlib.pyplot as plt
     # plt.plot(fft_in_data_np.flatten())

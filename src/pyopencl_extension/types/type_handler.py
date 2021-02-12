@@ -2,7 +2,7 @@ from typing import Tuple, Any
 
 import numpy as np
 
-from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES, VEC_INDICES_XYZW
 import pyopencl_extension.modifications_pyopencl.cltypes as tp
 
 
@@ -33,7 +33,7 @@ class VecVal:
                      for i in range(self.vec_size)])
         return self.type_handler(*res)
 
-    vec_indices = [f's{idx}' for idx in VEC_INDICES]
+    vec_indices = [f's{idx}' for idx in VEC_INDICES] + VEC_INDICES_XYZW
 
     def __getattr__(self, item):
         # https://stackoverflow.com/questions/2405590/how-do-i-override-getattr-in-python-without-breaking-the-default-behavior
