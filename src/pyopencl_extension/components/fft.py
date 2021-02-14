@@ -11,7 +11,7 @@ from pyopencl.array import zeros_like, Array, zeros
 from pytest import mark
 
 from pyopencl_extension import Function, Kernel, Scalar, Types, Global, to_device, Scalar, \
-    Global, Program, Thread, Private, set_b_use_existing_file_for_emulation, Local
+    Global, Program, Thread, Private, set_b_use_existing_file_for_emulation, Local, logging
 from pyopencl_extension.components.copy_array_region import CopyArrayRegion, Slice
 import numpy as np
 
@@ -29,66 +29,58 @@ class Fft:
     """
 
     def __call__(self, *args, **kwargs):
-        self._copy_in_buffer()
+        self._copy_in_buffer_and_set_zero()
         data_in = self._data_in
         data_out = self._data_out
         Ns = 1
-        n_stages = int(log(self.N, self.R))
-        for i in range(n_stages):
-            self.cl_program.gpu_fft(Ns=Ns,
-                                    data_in=data_in,
-                                    data_out=data_out)
-            Ns = Ns * self.R
+        for radix in self.schedule:
+            self.callable_kernels_dict[f'{radix}'](Ns=Ns,
+                                                   data_in=data_in,
+                                                   data_out=data_out)
+            Ns = Ns * radix
             data_in, data_out = data_out, data_in  # swap
+
+            # Ra = 16
+            # self.callable_kernels_dict[f'{Ra}'](Ns=Ns,
+            #                                     data_in=data_in,
+            #                                     data_out=data_out)
+            # a = data_out.get()
+            # Rb = 2
+            # for i in range(int(log(Ra,Rb))):
+            #     self.callable_kernels_dict[f'{Rb}'](Ns=Ns,
+            #                                         data_in=data_in,
+            #                                         data_out=data_out)
+            #     data_in, data_out = data_out, data_in  # swap
+            #     Ns = Ns * Rb
+            # b = data_in.get()
+            # assert np.allclose(a.view(Types.cdouble), b.view(Types.cdouble))
+            # t = 1
+
         return data_in.view(self.in_buffer.dtype).reshape(self._out_shape)
 
-    def __init__(self, in_buffer: Array, b_python=False, radix: int = 2):
-        # just for debugging:
-        self.b_python = b_python
+    @staticmethod
+    def _get_mixed_radix_schedule(N, radixes):
+        _radixes = [r for r in radixes if r <= int(N / 2)]  # if N is very short do not use large radix ffts
+        schedule = []
+        n = N
+        while n != 1:
+            _radix = radixes[np.argmax([(n / i).is_integer() for i in radixes])]
+            schedule.append(_radix)
+            n /= _radix
+            if not n.is_integer():
+                raise ValueError('Something went wrong. n must be integer')
+        return schedule  # [2 for _ in range(int(log(N, 2)))]
 
-        # fir internal data types to input data type
-        if in_buffer.dtype == Types.cfloat:
-            data_t = Types.float2
-            real_t = Types.double
-        elif in_buffer.dtype == Types.cdouble:
-            data_t = Types.double2
-            real_t = Types.double
-        else:
-            raise ValueError()
-
-        # input ist zero padded such that its length becomes a power of 2.
-        # There exists fast FFT versions for non power of two, but those are currently not implemented.
-        # For further information read here:
-        # https://math.stackexchange.com/questions/77118/non-power-of-2-ffts
-        # https://stackoverflow.com/questions/13841296/fft-in-numpy-python-when-n-is-not-a-power-of-2
-        if in_buffer.ndim == 1:
-            b_1d_input = True
-            in_buffer = in_buffer.reshape((1, in_buffer.shape[0]))
-        else:
-            b_1d_input = False
-        N = in_buffer.shape[1]
-        M = in_buffer.shape[0]
-        if not np.log2(N).is_integer():  # if not power of 2, pad accordingly
-            N = 2 ** int(np.log2(N) + 1)
-        if b_1d_input:
-            self._out_shape = (N,)
-        else:
-            self._out_shape = (M, N)
-
-        _data_in = zeros(in_buffer.queue, (M, N), in_buffer.dtype)
-        self._copy_in_buffer = CopyArrayRegion(in_buffer=in_buffer, region_in=Slice[:, :],
-                                               region_out=Slice[:, :in_buffer.shape[1]], out_buffer=_data_in)
-        data_in = _data_in.view(data_t)
-        data_out = zeros_like(data_in)
+    def _get_kernel(self, radix, data_t, real_t, data_in, data_out):
         typedefs = {'data_t': data_t,
                     'real_t': real_t}
         R = radix
-        T = min(int(N / R), Thread.from_buffer(in_buffer).device.global_mem_cacheline_size)
         defines = {'R': R,
-                   'N': N,
-                   'M': M,  # number of FFTs to perform simultaneously
-                   'T': T,  # work group size)
-                   'CW': (CW := Thread.from_buffer(in_buffer).device.global_mem_cacheline_size)  # Coalescing width
+                   'N': (N := data_in.shape[1]),
+                   'M': (M := data_in.shape[0]),  # number of FFTs to perform simultaneously
+                   # work group size:
+                   'T': (T := min(int(N / R), Thread.from_buffer(data_in).device.global_mem_cacheline_size)),
+                   'CW': (CW := Thread.from_buffer(data_in).device.global_mem_cacheline_size)  # Coalescing width
                    }
         knl_gpu_fft = Kernel('gpu_fft',
                              {'Ns': Scalar(Types.int),
@@ -101,11 +93,8 @@ class Fft:
                  local real_t shared[(int)(2*T*R)];//2*Ns];//T*R];
                  int t = get_local_id(2);
                  int b = get_global_id(1); 
-                 int idx_butterfly = b*T + t;               
-                 if(idx_butterfly<(int)(N/R)){ // in case N/R is not multiple of Threads T, deactivate certain work items
-                    int j = idx_butterfly; // as proposed in [1, p.3, text section A]
-                    fft_iteration(j, Ns, data_in, data_out, shared);
-                 }
+                 int j = b*T + t; // as proposed in [1, p.3, text section A]
+                 fft_iteration(j, Ns, data_in, data_out, shared);
                  """,
                              global_size=(M, max(1, int(N / (R * T))), T),
                              local_size=(1, 1, T))
@@ -129,7 +118,7 @@ class Fft:
                             v[r].s0*sin_angle+v[r].s1 *cos_angle);
         }
         ${fft_radix_R}(v);
-        
+
         // According to [1, p.4] commented block is replaced below, such that global memory writes are coalesced
         if(Ns>=CW){
             // changed line 27 of [1, Figure 2] to work with global dimensions of this class:
@@ -206,7 +195,7 @@ class Fft:
                 data_t v1 = v[0] - v[2];
                 data_t v2 = v[1] + v[3];
                 data_t v3 = mul_p1q2(v[1] - v[3]); // twiddle
-                
+
                 // 2x DFT2 and store
                 v[0] = v0 + v2;
                 v[1] = v1 + v3;
@@ -235,7 +224,7 @@ class Fft:
                 data_t u5 = v[5];
                 data_t u6 = v[6];
                 data_t u7 = v[7];
-                
+
                 data_t v0 = u0 + u4;
                 data_t v4 = mul_p0q4(u0 - u4);
                 data_t v1 = u1 + u5;
@@ -244,7 +233,7 @@ class Fft:
                 data_t v6 = mul_p2q4(u2 - u6);
                 data_t v3 = u3 + u7;
                 data_t v7 = mul_p3q4(u3 - u7);
-                
+
                 // 4x in-place DFT2 and twiddle
                 u0 = v0 + v2;
                 u2 = mul_p0q2(v0 - v2);
@@ -254,7 +243,7 @@ class Fft:
                 u6 = mul_p0q2(v4 - v6);
                 u5 = v5 + v7;
                 u7 = mul_p1q2(v5 - v7);
-                
+
                 // 4x DFT2 and store (reverse binary permutation)
                 v[0]   = u0 + u1;
                 v[1]   = u4 + u5;
@@ -297,7 +286,7 @@ class Fft:
                 DFT2_TWIDDLE(u[5],u[13],mul_p5q8);
                 DFT2_TWIDDLE(u[6],u[14],mul_p6q8);
                 DFT2_TWIDDLE(u[7],u[15],mul_p7q8);
-                
+
                 // 8x in-place DFT2 and twiddle (2)
                 DFT2_TWIDDLE(u[0],u[4],mul_p0q4);
                 DFT2_TWIDDLE(u[1],u[5],mul_p1q4);
@@ -307,7 +296,7 @@ class Fft:
                 DFT2_TWIDDLE(u[9],u[13],mul_p1q4);
                 DFT2_TWIDDLE(u[10],u[14],mul_p2q4);
                 DFT2_TWIDDLE(u[11],u[15],mul_p3q4);
-                
+
                 // 8x in-place DFT2 and twiddle (3)
                 DFT2_TWIDDLE(u[0],u[2],mul_p0q2);
                 DFT2_TWIDDLE(u[1],u[3],mul_p1q2);
@@ -317,7 +306,7 @@ class Fft:
                 DFT2_TWIDDLE(u[9],u[11],mul_p1q2);
                 DFT2_TWIDDLE(u[12],u[14],mul_p0q2);
                 DFT2_TWIDDLE(u[13],u[15],mul_p1q2);
-                
+
                 // 8x DFT2 and store (reverse binary permutation)
                 v[0]  = u[0]  + u[1];
                 v[1]  = u[8]  + u[9];
@@ -339,65 +328,99 @@ class Fft:
                                      defines={'DFT2_TWIDDLE(a,b,t)': '{ data_t tmp = t(a-b); a += b; b = tmp; }'})
         functions_radix_16 = [func_mul1] + funcs_mulpxpy_16 + [func_fft_radix_16]
 
-        funcs_radix = [func_fft_radix_2] + funcs_radix_4 + funcs_radix_8  + functions_radix_16
-        self.cl_program = Program(funcs_radix + [func_exchange, func_expand, func_fft_iteration],
-                                  [knl_gpu_fft], defines=defines, type_defs=typedefs
-                                  ).compile(Thread.from_buffer(in_buffer), b_python=self.b_python)
-        self.N = N
-        self.R = R
+        funcs_radix = [func_fft_radix_2] + funcs_radix_4 + funcs_radix_8 + functions_radix_16
+        program = Program(funcs_radix + [func_exchange, func_expand, func_fft_iteration],
+                          [knl_gpu_fft], defines=defines, type_defs=typedefs
+                          ).compile(Thread.from_buffer(data_in), b_python=self.b_python,
+                                    file=Program.get_default_dir_pycl_kernels().joinpath(f'fft_{radix}'))
+        return program.gpu_fft
+
+    def __init__(self, in_buffer: Array, b_python=False):
+        # just for debugging:
+        self.b_python = b_python
+
+        # fir internal data types to input data type
+        if in_buffer.dtype == Types.cfloat:
+            data_t = Types.float2
+            real_t = Types.double
+        elif in_buffer.dtype == Types.cdouble:
+            data_t = Types.double2
+            real_t = Types.double
+        else:
+            raise ValueError()
+
+        # input ist zero padded such that its length becomes a power of 2.
+        # There exists fast FFT versions for non power of two, but those are currently not implemented.
+        # For further information read here:
+        # https://math.stackexchange.com/questions/77118/non-power-of-2-ffts
+        # https://stackoverflow.com/questions/13841296/fft-in-numpy-python-when-n-is-not-a-power-of-2
+        if in_buffer.ndim == 1:
+            b_1d_input = True
+            in_buffer = in_buffer.reshape((1, in_buffer.shape[0]))
+        else:
+            b_1d_input = False
+        N = in_buffer.shape[1]
+        M = in_buffer.shape[0]
+        if not np.log2(N).is_integer():  # if not power of 2, pad accordingly
+            N = 2 ** int(np.log2(N) + 1)
+        if b_1d_input:
+            self._out_shape = (N,)
+        else:
+            self._out_shape = (M, N)
+
+        data_in = zeros(in_buffer.queue, (M, N), data_t)
+        self._copy_in_buffer_and_set_zero = Kernel('copy_in_buffer_and_set_data_in_to_zero',
+                                                   {'x': Global(in_buffer.view(data_t)),
+                                                    'y': Global(data_in)},
+                                                   """
+               int i = get_global_id(0); int j = get_global_id(1);
+               if(j<N){ y[i*get_global_size(1)+j]=x[j*N+i];
+               }else{   y[i*get_global_size(1)+j]=(data_t)(0.0,0.0);}               
+               """, defines={'N': N, 'M': M}, global_size=data_in.shape, type_defs={'data_t': data_t}
+                                                   ).compile(thread=Thread.from_buffer(in_buffer))
+        data_out = zeros_like(data_in)
+
+        radixes = [16, 8, 4, 2]  # available radix ffts
+        self.schedule = self._get_mixed_radix_schedule(N, radixes)
+        self.callable_kernels_dict = {f'{_radix}': self._get_kernel(_radix, data_t, real_t, data_in, data_out)
+                                      for _radix in np.unique(self.schedule)}
         self.in_buffer = in_buffer
         self._data_in = data_in
         self._data_out = data_out
 
 
-# todo :remove seed
-np.random.seed(0)
-shape = (1024, 16, 16, 16)
-axes = (1, 2, 3)
-
-data = np.random.normal(size=shape) + 1j * np.random.normal(size=shape)
-data = data.astype(Types.cdouble)
-
-
-def in_data_complex_radix(radix=2, exponent=10):
+def get_in_data_cplx(M, N, dtype=Types.cdouble):
     np.random.seed(0)
-    in_data_np = np.random.random((50, 2 ** 16,)).astype(Types.cdouble)
-    in_data_np = np.random.random((50, radix ** exponent,)).astype(Types.cdouble)
-    return in_data_np, radix
+    in_data_np = np.random.random((M, N,)).astype(dtype)
+    in_data_np.imag = np.random.random((M, N,)).astype(in_data_np.imag.dtype)
+    return in_data_np
 
 
-@mark.parametrize("in_data", [
-    in_data_complex_radix(radix=16, exponent=3),
-    (np.random.random((2, 2 ** 3,)).astype(Types.cdouble), 2),
-    in_data_complex_radix(radix=2, exponent=10),
-    in_data_complex_radix(radix=4, exponent=5),
-    in_data_complex_radix(radix=8, exponent=4),
-    # ,
-    # in_data_complex_radix(radix=4, exponent=5),
-    # in_data_complex_radix(radix=8, exponent=4),
-])
-def test_fft(in_data):
+def get_in_data_cplx_radix(radix=2, exponent=10):
+    np.random.seed(0)
+    return get_in_data_cplx(50, radix ** exponent)
+
+
+@mark.parametrize("in_data_np", [
+    np.random.random((2 ** 9,)).astype(Types.cdouble),
+    get_in_data_cplx(2000, 1000, dtype=Types.cfloat),
+    get_in_data_cplx_radix(radix=16, exponent=3),
+    get_in_data_cplx_radix(radix=2, exponent=10),
+    get_in_data_cplx_radix(radix=4, exponent=5),
+    get_in_data_cplx_radix(radix=8, exponent=4)])
+def test_fft(in_data_np):
+    atol = 1e-4 if in_data_np.dtype == Types.cfloat else 1e-8
     import numpy as np
-    in_data_np = in_data[0]
-    radix = in_data[1]
-    attempts = 4
-
-    for i in range(attempts):
-        t_np = time.time()
-
-    ts = []
-    for i in range(attempts):
-        t1 = time.time()
-        fft_in_data_np = np.fft.fft(in_data_np, axis=-1)
-        t2 = time.time()
-        ts.append(t2 - t1)
-    t_np = min(ts)
 
     thread = Thread(b_profiling_enable=False)
     in_data_cl = to_device(thread.queue, in_data_np)
 
-    fft_cl = Fft(in_data_cl, b_python=False, radix=radix)
+    fft_cl = Fft(in_data_cl, b_python=False)
 
+    fft_cl._copy_in_buffer_and_set_zero()
+    in_data_np_power_of_two = fft_cl._data_in.get().view(in_data_np.dtype)
+
+    attempts = 10
     ts = []
     for i in range(attempts):
         t1 = time.time()
@@ -406,10 +429,19 @@ def test_fft(in_data):
         t2 = time.time()
         ts.append(t2 - t1)
     t_cl = min(ts)
-    if in_data_np.size < 512:
+
+    ts = []
+    for i in range(attempts):
+        t1 = time.time()
+        fft_in_data_np = np.fft.fft(in_data_np_power_of_two, axis=-1)
+        t2 = time.time()
+        ts.append(t2 - t1)
+    t_np = min(ts)
+
+    if in_data_np.size < 1024:
         # Test against emulation (commented since it is slower)
         set_b_use_existing_file_for_emulation(False)
-        fft_cl_py = Fft(in_data_cl, b_python=True, radix=radix)
+        fft_cl_py = Fft(in_data_cl, b_python=True)
 
         fft_in_data_cl_py = fft_cl_py()
         a = fft_in_data_cl_py.get().view(Types.cdouble)
@@ -421,8 +453,7 @@ def test_fft(in_data):
     # plt.plot(fft_in_data_np.flatten())
     # plt.plot(fft_in_data_cl_emulation.get().flatten())
     # plt.show()
-    assert np.allclose(fft_in_data_np, fft_in_data_cl.get())
-
+    assert np.allclose(fft_in_data_np, fft_in_data_cl.get(), atol=atol)
     # benchmark using reikna
     if False:  # change to true to run against reikna's fft. Note: Reikna takes quite some optimization time before run
         from reikna.cluda import any_api
@@ -451,4 +482,3 @@ def test_fft(in_data):
         # numpy.fft.fftn(data[:, :, 0], axes=(1,))
         treikna_min = min(ts)
         assert np.allclose(fft_in_data_np, res_dev.get())
-    t = 0

@@ -53,6 +53,30 @@ class Types(_ClTypes):
 
 VEC_INDICES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 'A', 'B', 'C', 'D', 'E', 'F']
 VEC_INDICES_XYZW = ['x', 'y', 'z', 'w']
+VEC_INDICES_SPECIAL = ['lo', 'hi', 'odd', 'even']
+# for details see https://www.khronos.org/files/opencl-1-2-quick-reference-card.pdf
+VEC_ADDRESSING = {
+    'lo': {'2': [0],
+           '3': [0, 1],  # When using .lo or .hi with a 3-component vector, the .w component is undefined
+           '4': [0, 1],
+           '8': [0, 1, 2, 3],
+           '16': [0, 1, 2, 3, 4, 5, 6, 7]},
+    'hi': {'2': [1],
+           '3': [2, 1],
+           '4': [2, 3],
+           '8': [4, 5, 6, 7],
+           '16': [8, 9, 'A', 'B', 'C', 'D', 'E', 'F']},
+    'odd': {'2': [1],
+            '3': [1, 3],
+            '4': [1, 3],
+            '8': [1, 3, 5, 7],
+            '16': [1, 3, 5, 7, 9, 'B', 'D', 'F']},
+    'even': {'2': [0],
+             '3': [0, 2],
+             '4': [0, 2],
+             '8': [0, 2, 4, 6],
+             '16': [0, 2, 4, 6, 8, 'A', 'C', 'E']}
+}
 
 
 def get_vec_size(dtype: np.dtype) -> int:

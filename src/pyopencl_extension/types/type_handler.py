@@ -2,7 +2,8 @@ from typing import Tuple, Any
 
 import numpy as np
 
-from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES, VEC_INDICES_XYZW
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES, \
+    VEC_INDICES_XYZW, Types, VEC_ADDRESSING, scalar_type_from_vec_type
 import pyopencl_extension.modifications_pyopencl.cltypes as tp
 
 
@@ -34,11 +35,21 @@ class VecVal:
         return self.type_handler(*res)
 
     vec_indices = [f's{idx}' for idx in VEC_INDICES] + VEC_INDICES_XYZW
+    vec_special = VEC_ADDRESSING
 
     def __getattr__(self, item):
         # https://stackoverflow.com/questions/2405590/how-do-i-override-getattr-in-python-without-breaking-the-default-behavior
         if item in self.vec_indices:
             return self.val[f'{item}']
+        elif item in VEC_ADDRESSING.keys():
+            # get type
+            items = [self.val[f's{i}'] for i in VEC_ADDRESSING[item][f'{self.vec_size}']]
+            typename = c_name_from_dtype(scalar_type_from_vec_type(self.val.dtype))
+            if len(items) > 1:
+                typename += str(len(items))
+                return TypeHandlerVec(typename)(*items)
+            else:
+                return TypeHandlerScalar(typename)(*items)
         else:
             raise AttributeError
 
@@ -225,6 +236,7 @@ class TypeHandlerScalar:
     """
     This class types scalar OpenCl types.
     """
+
     def __init__(self, dtype):
         self.dtype = dtype
 
@@ -256,7 +268,7 @@ class TypeHandlerVec:
 
 
 def test_vec_val():
-    import cltypes_emulation as tp
+    import auto_gen.types_for_emulation as tp
     a = tp.long2(1, 2)
     b = tp.long2(1, 2)
     assert (a + b).val == tp.long2(2, 4).val

@@ -1,6 +1,7 @@
+import os
 from typing import Union
 from pyopencl_extension.types.utilities_np_cl import *
-from pyopencl_extension import Thread
+from pyopencl_extension import Thread, Path
 import re
 
 __author__ = "piveloper"

@@ -120,6 +120,60 @@ names_func_require_work_item = []
 names_func_has_barrier = []
 
 
+class MacroWithArguments:
+    """ Explanation:
+    Consider following macro with arguments
+    #define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }
+    which is used e.g. as:
+    DFT2_TWIDDLE(u[0],u[8],mul_p0q8);
+
+    1. replace_macro_having_argument_with_function(code_c)
+    # replace defines with functions
+    # e.g. '# define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }'
+    # becomes: 'void DFT2_TWIDDLE(a,b,t){ data_t tmp = t(a-b); a += b; b = tmp; }
+
+    2. c-parser converts function to function to abstract syntax tree model
+
+    3. unparse_macro_node_and_convert_to_string:
+        In a first step this macro is converted to python code which yields:
+        def DFT2_TWIDDLE(a, b, t, wi: WorkItem = None):
+            tmp = data_t(t(a - b))
+            a += b
+            b = tmp
+
+        To achieve the same behavior as the C macro, we have to execute the python function code in the
+        scope where the function DFT2_TWIDDLE is called. The variables in the arguments have to be
+        substituted accordingly.
+        We get:
+        DFT2_TWIDDLE = 'tmp = data_t({t}({a} - {b}))\n{a} += {b}\n{b} = tmp'
+        which is used in the emulator like in the following:
+        exec(DFT2_TWIDDLE.format(a='u[0]', b='u[8]', t='mul_p0q8'))
+    """
+    names_py_macro = {}  # dictionary with executable string
+
+    @classmethod
+    def replace_with_function(cls, code_c):
+        cls.names_py_macro.clear()  # make sure that dict is empty
+        if search(regex_func_def_multi_line, code_c):
+            for _ in re.findall(regex_func_def_multi_line, code_c):
+                def_part_code_c = ''.join(_)
+                res = search(regex_func_def_multi_line, def_part_code_c)
+                func = f'void {res.group(3)}({res.group(5)}){{{res.group(9)}}}'
+                code_c = code_c.replace(def_part_code_c, func)
+
+                cls.names_py_macro[res.group(3)] = 'to be filled with python code'
+        return code_c
+
+    @classmethod
+    def unparse_macro_node_and_convert_to_string(cls, node):
+        macro = _unparse(node.body)
+        args = [p.name for p in node.decl.type.args.params]
+        for arg in args:
+            macro = re.sub(r'(?<![\w])' + arg + r'(?![\w])', f'{{{arg}}}', macro)
+        cls.names_py_macro[node.decl.name] = args
+        return f'{node.decl.name} = """{macro}"""'
+
+
 def _unparse(node: Node) -> Container:
     if isinstance(node, FuncDef):
         # check if function is kernel
@@ -151,7 +205,7 @@ def _unparse(node: Node) -> Container:
             name = _unparse(node.type)
         else:
             raise ValueError('Not implemented')
-        res = 'def {}(wi: WorkItem, {}):'.format(name, args)
+        res = 'def {}({}, wi: WorkItem = None):'.format(name, args)
     elif isinstance(node, TypeDecl):
         res = node.declname
     elif isinstance(node, FuncCall):
@@ -177,8 +231,12 @@ def _unparse(node: Node) -> Container:
                 res = f'\nwi.scope = locals()  # saves reference to objects in scope for debugging other wi in wg \n' \
                       f'yield  # yield models the behaviour of barrier({node.args.exprs[0].name})\n'
             else:
-                if func_name in names_func_require_work_item:
-                    res = '{}(wi, {})'.format(_unparse(node.name), _unparse(node.args))
+                if func_name in (_ := MacroWithArguments.names_py_macro):
+                    args = _unparse(node.args).split(', ')
+                    format_arg = ', '.join([f'{macro_arg}="{args[i]}"' for i, macro_arg in enumerate(_[func_name])])
+                    res = f'exec({func_name}.format({format_arg}))'
+                elif func_name in names_func_require_work_item:
+                    res = '{}({}, wi=wi)'.format(_unparse(node.name), _unparse(node.args))
                     if func_name in names_func_has_barrier:
                         res = f'(yield from {res})'
                 else:
@@ -272,7 +330,7 @@ def _unparse(node: Node) -> Container:
                 else:
                     raise ValueError('Currently array initializer with multiple or non zero values not supported')
         elif node.init is None:  # real_t metric;
-            res = ''
+            res = f'{node.name} = {node.type.type.names[0]}(0)'
         else:  # int gid1=get_global_id(0);
             if isinstance(node.type, PtrDecl):
                 type_cl = node.type.type.type.names[0]
@@ -510,7 +568,7 @@ def cl_kernel(kernel):
                        for arg in args_python]
         for wi in work_items:
             wi.work_items = work_items
-        blocking_kernels = [kernel(work_item, *args_python) for work_item in work_items]
+        blocking_kernels = [kernel(*args_python, wi=work_item) for work_item in work_items]
         while True:
             try:
                 [next(knl) for knl in blocking_kernels]
@@ -642,15 +700,7 @@ def unparse_c_code_to_python(code_c: str) -> str:
     code_c = re.sub(r'\/\*(\*(?!\/)|[^*])*\*\/', '', code_c)
     code_c = code_c.replace('#pragma unroll', '')
 
-    # replace defines with functions
-    # e.g. '# define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }'
-    # becomes: 'void DFT2_TWIDDLE(a,b,t){ data_t tmp = t(a-b); a += b; b = tmp; }'
-    if search(regex_func_def_multi_line, code_c):
-        for _ in re.findall(regex_func_def_multi_line, code_c):
-            def_part_code_c = ''.join(_)
-            res = search(regex_func_def_multi_line, def_part_code_c)
-            func = f'void {res.group(3)}({res.group(5)}){{{res.group(9)}}}'
-            code_c = code_c.replace(def_part_code_c,func)
+    code_c = MacroWithArguments.replace_with_function(code_c)
 
     from pyopencl_extension import preamble_activate_double
     from pyopencl_extension import preamble_activate_complex_numbers
@@ -689,7 +739,10 @@ import numpy as np
             module_py.append(unparse_type_def_node(node))
         if isinstance(node, FuncDef):
             module_py.append('\n')
-            module_py.append(unparse_function_node(node))
+            if node.decl.name in MacroWithArguments.names_py_macro:  # for explanation see comment below names_macro_func_def
+                module_py.append(MacroWithArguments.unparse_macro_node_and_convert_to_string(node))
+            else:
+                module_py.append(unparse_function_node(node))
 
     code_py = '\n'.join(module_py)
     # todo: deal with complex header

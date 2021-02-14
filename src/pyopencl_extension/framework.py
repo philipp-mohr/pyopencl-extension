@@ -403,6 +403,10 @@ class Compilable:
     def compile(self, thread: Thread, b_python: bool = False):
         pass
 
+    @staticmethod
+    def get_default_dir_pycl_kernels():
+        return Path(os.getcwd()).joinpath('py_cl_kernels')
+
 
 @dataclass
 class Kernel(ClFunctionBase, Compilable):
@@ -724,7 +728,7 @@ def compile_cl_program_device(program_model: Program, thread: Thread = None, fil
 
 @MemoizeKernelFunctions
 def compile_cl_program_emulation(program_model: Program, thread: Thread, file: str = None) -> Dict[str,
-                                                                                                    Callable]:
+                                                                                                   Callable]:
     code_py = unparse_c_code_to_python(program_model.rendered_template)
     module = create_py_file_and_load_module(code_py, file)
     kernels_model = program_model.kernels
@@ -741,7 +745,7 @@ def compile_cl_program(program_model: Program, thread: Thread = None, b_python: 
         raise ValueError('You intended to create no file by setting file=None. '
                          'However, a file must be created for debugging.')  # todo can python debugging run without file?
     elif file == '$default_path':
-        file = str(Path(os.getcwd()).joinpath('py_cl_kernels').joinpath(program_model.kernels[0].name))
+        file = str(program_model.get_default_dir_pycl_kernels().joinpath(program_model.kernels[0].name))
 
     # try to extract cl init from kernel buffer default arguments. This improves usability
     if thread is None:
