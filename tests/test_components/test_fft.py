@@ -4,11 +4,11 @@ __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This module contains tests for the FFT operation. Radix 2 and """
 
-from pyopencl_extension.components.fft import Fft
+from pyopencl_extension.components.fft import Fft, IFft
 from pyopencl_extension import Types, to_device, Thread, set_b_use_existing_file_for_emulation
 
 import time
-from pytest import mark
+from pytest import mark, fixture
 import numpy as np
 
 
@@ -24,15 +24,19 @@ def get_in_data_cplx_radix(radix=2, exponent=10):
     return get_in_data_cplx(50, radix ** exponent)
 
 
-@mark.parametrize("in_data_np", [
-    #np.random.random((2 ** 14,)).astype(Types.cdouble),
+@fixture(params=[
+    # np.random.random((2 ** 14,)).astype(Types.cdouble),
     get_in_data_cplx(1, 512, dtype=Types.cdouble),
     get_in_data_cplx(20, 10000, dtype=Types.cdouble),
-    #np.random.random((1,2 ** 9,)).astype(Types.cdouble),
+    # np.random.random((1,2 ** 9,)).astype(Types.cdouble),
     get_in_data_cplx_radix(radix=16, exponent=3),
     get_in_data_cplx_radix(radix=2, exponent=10),
     get_in_data_cplx_radix(radix=4, exponent=5),
     get_in_data_cplx_radix(radix=8, exponent=4)])
+def in_data_np(request):
+    return request.param
+
+
 def test_fft(in_data_np):
     atol = 1e-4 if in_data_np.dtype == Types.cfloat else 1e-8
     import numpy as np
@@ -68,6 +72,7 @@ def test_fft(in_data_np):
     def fft_call():
         fft_in_data_cl = fft_cl()
         fft_in_data_cl.queue.finish()
+
     t_cl = measure(fft_call)
     fft_in_data_cl = fft_cl()
 
@@ -83,7 +88,6 @@ def test_fft(in_data_np):
         assert np.allclose(a, b)
         assert np.allclose(c, b)
         assert np.allclose(c, a)
-
 
     # import matplotlib.pyplot as plt
     # plt.plot(fft_in_data_np.flatten())
@@ -118,3 +122,21 @@ def test_fft(in_data_np):
         # numpy.fft.fftn(data[:, :, 0], axes=(1,))
         treikna_min = min(ts)
         assert np.allclose(fft_in_data_np, res_dev.get())
+
+
+def test_ifft(in_data_np):
+    thread = Thread(b_profiling_enable=False)
+    in_ = to_device(thread.queue, in_data_np)
+    fft_cl = Fft(in_buffer=in_)
+    fft_in_ = fft_cl()
+
+    ref_ifft_fft_in_ = np.fft.ifft(fft_in_.get(), axis=-1)
+    ifft_cl = IFft(fft_in_)
+    ifft_fft_in_ = ifft_cl().get()
+    if in_data_np.size < 1024:
+        ifft_cl_py = IFft(fft_in_, b_python=True)
+        py_np_ifft_fft_in_ = ifft_cl_py().get()
+        a = py_np_ifft_fft_in_
+        b = ifft_fft_in_
+        assert np.allclose(a, b)
+    assert np.allclose(ifft_fft_in_, ref_ifft_fft_in_)

@@ -107,7 +107,7 @@ class _FftBase:
                 v_from_data0 += 'v[r] = (data_t)(v[r].s1, v[r].s0);'
         elif iteration_current == iteration_max and b_inverse_fft:
             # inverse fft: swap imaginary and real part when writing data and scale by 1/N
-            data_1_from_v = 'data1[idxD] = 1/N * (data_t)(v[r].s1, v[r].s0);'
+            data_1_from_v = 'data1[idxD] = (data_t)((float)(1.0/N)) * (data_t)(v[r].s1, v[r].s0);'
 
         replacements = {'v_from_data0': v_from_data0,
                         'fft_radix_R': f'fft_radix_{R}',

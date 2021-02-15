@@ -85,166 +85,166 @@ class VecVal:
     # todo: implement other build in when required
     def __abs__(self, *args, **kwargs):  # real signature unknown
         """ abs(self) """
-        pass
+        raise NotImplementedError()
 
     def __and__(self, *args, **kwargs):  # real signature unknown
         """ Return self&value. """
-        pass
+        raise NotImplementedError()
 
     def __bool__(self, *args, **kwargs):  # real signature unknown
         """ self != 0 """
-        pass
+        raise NotImplementedError()
 
     def __ceil__(self, *args, **kwargs):  # real signature unknown
         """ Ceiling of an Integral returns itself. """
-        pass
+        raise NotImplementedError()
 
     def __divmod__(self, *args, **kwargs):  # real signature unknown
         """ Return divmod(self, value). """
-        pass
+        raise NotImplementedError()
 
     def __eq__(self, *args, **kwargs):  # real signature unknown
         """ Return self==value. """
-        pass
+        raise NotImplementedError()
 
     def __ge__(self, *args, **kwargs):  # real signature unknown
         """ Return self>=value. """
-        pass
+        raise NotImplementedError()
 
     def __gt__(self, *args, **kwargs):  # real signature unknown
         """ Return self>value. """
-        pass
+        raise NotImplementedError()
 
     def __hash__(self, *args, **kwargs):  # real signature unknown
         """ Return hash(self). """
-        pass
+        raise NotImplementedError()
 
     def __index__(self, *args, **kwargs):  # real signature unknown
         """ Return self converted to an integer, if self is suitable for use as an index into a list. """
-        pass
+        raise NotImplementedError()
 
     def __int__(self, *args, **kwargs):  # real signature unknown
         """ int(self) """
-        pass
+        raise NotImplementedError()
 
     def __invert__(self, *args, **kwargs):  # real signature unknown
         """ ~self """
-        pass
+        raise NotImplementedError()
 
     def __le__(self, *args, **kwargs):  # real signature unknown
         """ Return self<=value. """
-        pass
+        raise NotImplementedError()
 
     def __lshift__(self, *args, **kwargs):  # real signature unknown
         """ Return self<<value. """
-        pass
+        raise NotImplementedError()
 
     def __lt__(self, *args, **kwargs):  # real signature unknown
         """ Return self<value. """
-        pass
+        raise NotImplementedError()
 
     def __mod__(self, *args, **kwargs):  # real signature unknown
         """ Return self%value. """
-        pass
+        raise NotImplementedError()
 
     def __neg__(self, *args, **kwargs):  # real signature unknown
         """ -self """
-        pass
+        raise NotImplementedError()
 
     def __ne__(self, *args, **kwargs):  # real signature unknown
         """ Return self!=value. """
-        pass
+        raise NotImplementedError()
 
     def __or__(self, *args, **kwargs):  # real signature unknown
         """ Return self|value. """
-        pass
+        raise NotImplementedError()
 
     def __pos__(self, *args, **kwargs):  # real signature unknown
         """ +self """
-        pass
+        raise NotImplementedError()
 
     def __pow__(self, *args, **kwargs):  # real signature unknown
         """ Return pow(self, value, mod). """
-        pass
+        raise NotImplementedError()
 
     def __radd__(self, *args, **kwargs):  # real signature unknown
         """ Return value+self. """
-        pass
+        raise NotImplementedError()
 
     def __rand__(self, *args, **kwargs):  # real signature unknown
         """ Return value&self. """
-        pass
+        raise NotImplementedError()
 
     def __rdivmod__(self, *args, **kwargs):  # real signature unknown
         """ Return divmod(value, self). """
-        pass
+        raise NotImplementedError()
 
     def __repr__(self, *args, **kwargs):  # real signature unknown
         """ Return repr(self). """
-        pass
+        raise NotImplementedError()
 
     def __rfloordiv__(self, *args, **kwargs):  # real signature unknown
         """ Return value//self. """
-        pass
+        raise NotImplementedError()
 
     def __rlshift__(self, *args, **kwargs):  # real signature unknown
         """ Return value<<self. """
-        pass
+        raise NotImplementedError()
 
     def __rmod__(self, *args, **kwargs):  # real signature unknown
         """ Return value%self. """
-        pass
+        raise NotImplementedError()
 
     def __rmul__(self, *args, **kwargs):  # real signature unknown
         """ Return value*self. """
-        pass
+        raise NotImplementedError()
 
     def __ror__(self, *args, **kwargs):  # real signature unknown
         """ Return value|self. """
-        pass
+        raise NotImplementedError()
 
     def __round__(self, *args, **kwargs):  # real signature unknown
         """
         Rounding an Integral returns itself.
         Rounding with an ndigits argument also returns an integer.
         """
-        pass
+        raise NotImplementedError()
 
     def __rpow__(self, *args, **kwargs):  # real signature unknown
         """ Return pow(value, self, mod). """
-        pass
+        raise NotImplementedError()
 
     def __rrshift__(self, *args, **kwargs):  # real signature unknown
         """ Return value>>self. """
-        pass
+        raise NotImplementedError()
 
     def __rshift__(self, *args, **kwargs):  # real signature unknown
         """ Return self>>value. """
-        pass
+        raise NotImplementedError()
 
     def __rsub__(self, *args, **kwargs):  # real signature unknown
         """ Return value-self. """
-        pass
+        raise NotImplementedError()
 
     def __rtruediv__(self, *args, **kwargs):  # real signature unknown
         """ Return value/self. """
-        pass
+        raise NotImplementedError()
 
     def __rxor__(self, *args, **kwargs):  # real signature unknown
         """ Return value^self. """
-        pass
+        raise NotImplementedError()
 
     def __sizeof__(self, *args, **kwargs):  # real signature unknown
         """ Returns size in memory, in bytes. """
-        pass
+        raise NotImplementedError()
 
     def __trunc__(self, *args, **kwargs):  # real signature unknown
         """ Truncating an Integral returns itself. """
-        pass
+        raise NotImplementedError()
 
     def __xor__(self, *args, **kwargs):  # real signature unknown
         """ Return self^value. """
-        pass
+        raise NotImplementedError()
 
 
 class TypeHandlerScalar:
