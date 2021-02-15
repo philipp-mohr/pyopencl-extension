@@ -9,45 +9,45 @@ from pyopencl_extension import Thread, Types, Kernel, Global, Profiling, ClHelpe
 from pyopencl_extension.components.convolve import Convolution1D
 
 
-def get_fft_function(size_input, type_input, n_axes):
-    N = size_input
-    if not np.log2(N).is_integer():
-        raise ValueError('input size must be power of 2')
-    defines = {
-        'N_STAGES': int(np.log2(N)),
-        'N_INPUTS': int(np.log2(N)),
-        'AXIS': n_axes,
-               }
-    typedefs = {'cplx_t': type_input}
-    # Work group size is assumed to be N
-    func = Function('radix2_fft',
-                    {'x': Global(type_input),
-                       'i_x': Scalar(Types.int)
-                       },
-                      """
-               local cplx_t[N_INPUTS] a;
-               local cplx_t[N_INPUTS] b;
-               b = x;//interleave x according to radix2 requirements
-               for(int i_stage=0; i_stage<N_STAGES; i_stage++){
-                    // prepare input
-                    if(i_x==0){
-                        a[i_x] = MUL( CPLX_EXP(2*PI*0)) , b[i_x] );
-                    }else
-                    barrier(CLK_LOCAL_MEM_FENCE);
-                    b[i_x] = a[i_x+1] + a[i_x];
-               }
-               """,
-                    defines=defines,
-                    type_defs=typedefs)
-    return local_size_last
-
-def test_cl_fft():
-    # initialize context and queue
-    thread = Thread()
-    queue = thread.queue
-    signal_t = Types.int
-    x = to_device(queue, (10 * (np.random.random((1000000,)) - 0.5)).astype(signal_t))
-    get_fft_function(1024)
+# def get_fft_function(size_input, type_input, n_axes):
+#     N = size_input
+#     if not np.log2(N).is_integer():
+#         raise ValueError('input size must be power of 2')
+#     defines = {
+#         'N_STAGES': int(np.log2(N)),
+#         'N_INPUTS': int(np.log2(N)),
+#         'AXIS': n_axes,
+#                }
+#     typedefs = {'cplx_t': type_input}
+#     # Work group size is assumed to be N
+#     func = Function('radix2_fft',
+#                     {'x': Global(type_input),
+#                        'i_x': Scalar(Types.int)
+#                        },
+#                       """
+#                local cplx_t[N_INPUTS] a;
+#                local cplx_t[N_INPUTS] b;
+#                b = x;//interleave x according to radix2 requirements
+#                for(int i_stage=0; i_stage<N_STAGES; i_stage++){
+#                     // prepare input
+#                     if(i_x==0){
+#                         a[i_x] = MUL( CPLX_EXP(2*PI*0)) , b[i_x] );
+#                     }else
+#                     barrier(CLK_LOCAL_MEM_FENCE);
+#                     b[i_x] = a[i_x+1] + a[i_x];
+#                }
+#                """,
+#                     defines=defines,
+#                     type_defs=typedefs)
+#     return local_size_last
+#
+# def test_cl_fft():
+#     # initialize context and queue
+#     thread = Thread()
+#     queue = thread.queue
+#     signal_t = Types.int
+#     x = to_device(queue, (10 * (np.random.random((1000000,)) - 0.5)).astype(signal_t))
+#     get_fft_function(1024)
 
 
 def test_convolution():

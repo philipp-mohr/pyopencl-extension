@@ -416,3 +416,23 @@ def test_nested_local_barrier_inside_function(thread):
     thread.queue.finish()
     assert np.allclose(ary_py, np.array([2, 1]))
     assert np.allclose(ary_py, ary_cl)
+
+
+def test_macro_with_arguments(thread):
+    defines = {'FUNC(a,b,c)': '{ int tmp = c(a-b); a += b + tmp; }'}  # this is a macro with arguments
+    ary = zeros(thread.queue, (2,), Types.int)
+    func_add_two = Function('add_two',
+                            {'a': Scalar(Types.int)},
+                            'return a + 2;', return_type=Types.int)
+    knl = Kernel('knl_macro_func',
+                 {'ary': Global(ary)},
+                 """
+               int a = 1;
+               int b = 2;
+               FUNC(a, b, add_two)
+               ary[get_global_id(0)] = a;
+               """,
+                 defines=defines,
+                 global_size=ary.shape)
+    Program([func_add_two], [knl]).compile(thread).knl_macro_func()
+    assert np.allclose(ary.get(), np.array([4, 4]).astype(ary.dtype))

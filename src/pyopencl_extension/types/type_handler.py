@@ -2,6 +2,7 @@ from typing import Tuple, Any
 
 import numpy as np
 
+from pyopencl_extension.types.auto_gen.cl_types import ClTypesScalar
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, dtype_from_c_name, VEC_INDICES, \
     VEC_INDICES_XYZW, Types, VEC_ADDRESSING, scalar_type_from_vec_type
 import pyopencl_extension.modifications_pyopencl.cltypes as tp
@@ -36,6 +37,20 @@ class VecVal:
 
     vec_indices = [f's{idx}' for idx in VEC_INDICES] + VEC_INDICES_XYZW
     vec_special = VEC_ADDRESSING
+    scalar_types_builtins = [int, float]
+    scalar_types_cl = list(ClTypesScalar().__dict__.values())
+    scalar_types = scalar_types_builtins + scalar_types_cl
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in self.vec_indices:
+            self.val[name] = value
+        elif name in self.vec_special and type(value) in self.scalar_types:
+            for i in self.vec_special[name][str(len(self.val.dtype.names))]:
+                self.val[f's{i}'] = value
+        elif name in self.vec_special and type(value) == VecVal:
+            raise NotImplementedError()
+        else:
+            super().__setattr__(name, value)
 
     def __getattr__(self, item):
         # https://stackoverflow.com/questions/2405590/how-do-i-override-getattr-in-python-without-breaking-the-default-behavior
@@ -260,6 +275,9 @@ class TypeHandlerVec:
     def __call__(self, *args):
         if isinstance(args[0], VecVal):
             return args[0]
+        elif len(args) == 1:
+            a = self._type(*(args * len(self.dtype.names)))
+            return VecVal(a)
         elif isinstance(args, Tuple):
             a = self._type(*args)
             return VecVal(a)
@@ -269,11 +287,20 @@ class TypeHandlerVec:
 
 def test_vec_val():
     import auto_gen.types_for_emulation as tp
+    a = tp.long2(2, 2)
+    a.even = 1
+    assert a.val == tp.long2(1, 2).val
+    a.odd = 3
+    assert a.val == tp.long2(1, 3).val
+    a.s0 = 3
+    assert a.val == tp.long2(3, 3).val
+
     a = tp.long2(1, 2)
     b = tp.long2(1, 2)
     assert (a + b).val == tp.long2(2, 4).val
     assert (a - b).val == tp.long2(0, 0).val
     assert (a * b).val == tp.long2(1, 4).val
+    assert tp.long2(1).val == tp.long2(1, 1).val
 
 
 def test_vec_val_and_carray():

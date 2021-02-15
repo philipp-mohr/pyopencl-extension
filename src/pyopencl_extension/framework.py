@@ -294,36 +294,33 @@ class Scalar(ArgBase):
 
 
 @dataclass
-class Private(ArgBase):
+class Pointer(ArgBase, ABC):
     dtype: np.dtype = field(default=Types.int)
+
+
+@dataclass
+class Private(Pointer):
     address_space_qualifier: str = field(init=False, default='__private')
 
 
 @dataclass
-class Local(ArgBase):
-    dtype: np.dtype = field(default=Types.int)
+class Local(Pointer):
     address_space_qualifier: str = field(init=False, default='__local')
 
 
 @dataclass
-class ArgConstant(ArgBase):
+class Constant(Pointer):
     """
     const is only a hint for the compiler that the data does not change
     __constant leads to usage of very fast constant cache memory which is shared among
     multiple compute units. From AMD optimization guide, e.g. we can read 4 bytes/cycles.
     Local memory can be ready twice as fast with 8bytes/cycle, however local memory is a even more scarce resource.
     """
-    dtype: np.dtype = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__constant')
 
 
-# @dataclass
-# class ArgGlobal(ArgBuffer):  # todo, rename all usages of ArgBuffer to
-#     pass
-
-
 @dataclass
-class Global(ArgBase):
+class Global(Pointer):
     dtype: Union[np.dtype, Array] = field(default=Types.int)
     address_space_qualifier: str = field(default='')
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
@@ -382,7 +379,7 @@ class Function(ClFunctionBase):
     def template(self) -> str:
         return template(self)
 
-    args: Dict[str, Union[Scalar, Global, Local, Private, ArgConstant]] = field(default_factory=lambda: [])
+    args: Dict[str, Union[Scalar, Global, Local, Private, Constant]] = field(default_factory=lambda: [])
     body: Union[List[str], str] = field(default_factory=lambda: [])
     replacements: Dict[str, Union[str, float, int, bool]] = field(default_factory=lambda: {})
     return_type: np.dtype = field(default_factory=lambda: np.dtype(np.void))
