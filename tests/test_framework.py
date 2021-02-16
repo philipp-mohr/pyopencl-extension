@@ -7,6 +7,7 @@ from pyopencl.array import zeros, Array, to_device
 from pyopencl_extension import ClHelpers, Thread, Types, Program, Kernel, Global, \
     Scalar, \
     Function, Scalar, Global, c_name_from_dtype
+from pyopencl_extension.helpers.framework import HashArray
 
 
 class MyComponentAutomaticArgs:
@@ -206,6 +207,18 @@ def test_multiple_command_queues():
     # thread2.queue.finish()
     some_knl(queue=thread.queue)
     test = 0
+
+
+def test_hash_array(thread):
+    ary = zeros(thread.queue, shape=(100,), dtype=Types.float)
+    hash_ary = HashArray(ary)
+    a_hash = hash_ary.hash
+    hash_ary.set(np.ones(hash_ary.shape).astype(hash_ary.dtype))
+    b_hash = hash_ary.hash
+    assert a_hash != b_hash
+    hash_ary[0] = 5
+    c_hash = hash_ary.hash
+    assert c_hash != b_hash
 
 # to much work to make overloading functionality working from outside of C compiler, because that requires tracking
 # types of variables. If complex support is required just make second implementation.

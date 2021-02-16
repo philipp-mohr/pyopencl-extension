@@ -1,7 +1,7 @@
 import os
 from typing import Union
 from pyopencl_extension.types.utilities_np_cl import *
-from pyopencl_extension import Thread, Path
+from pyopencl_extension import Thread, Path, Array
 import re
 
 __author__ = "piveloper"
@@ -9,6 +9,29 @@ __copyright__ = "05.02.2021, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This module contains useful function when interacting with pyopencl_extension"""
+
+
+class HashArray(Array):
+    def __init__(self, *args, **kwargs):
+        if isinstance(args[0], Array):
+            a = args[0]
+            super().__init__(a.queue, a.shape, a.dtype, order="C", allocator=a.allocator,
+                             data=a.data, offset=a.offset, strides=a.strides, events=a.events, _flags=a.flags)
+        else:
+            super().__init__(*args, **kwargs)
+        self.hash = hash(self.get().tobytes())
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.update_hash()
+
+    def set(self, ary, queue=None, async_=None, **kwargs):
+        res = super().set(ary, queue, async_, **kwargs)
+        self.update_hash()
+        return res
+
+    def update_hash(self):
+        self.hash = hash(self.get().tobytes())
 
 
 class ClHelpers:
