@@ -20,7 +20,7 @@ URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
 REQUIRES_PYTHON = '>=3.8.0'
-VERSION = '0.0.10'
+VERSION = '0.0.11'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
@@ -33,7 +33,6 @@ EXTRAS = {
         'pytest',
         'check-manifest',
         'twine',
-        'wheel',
         'reikna'
     ]  # 'fancy feature': ['django'],
 }
@@ -92,7 +91,11 @@ class LocalCommand(Command):
             rmtree(os.path.join(here, 'dist'))
         except OSError:
             pass
-
+        try:
+            self.status('Removing builds/lib to get rid os obsolete files...')
+            rmtree(os.path.join(here, 'build/lib'))
+        except OSError:
+            pass
         self.status('Building Source and Wheel distribution…')
         os.system(f'{sys.executable} setup.py sdist bdist_wheel')
         # self.status('Building Source and Wheel (universal) distribution…')
