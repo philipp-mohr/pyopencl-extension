@@ -9,8 +9,8 @@ knl = Kernel('some_operation',
              {'buff': Global(ary),
               'number': Scalar(Types.short(3))},
              """
-                buff[get_global_id(0)] = get_global_id(0) + 3;
+                buff[get_global_id(0)] = get_global_id(0) + number;
                """,
-             global_size=ary.shape).compile(thread)
+             global_size=ary.shape).compile(thread, b_python=True)
 knl()
 assert np.allclose(ary.get(), np.arange(10) + 3)

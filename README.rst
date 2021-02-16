@@ -42,10 +42,16 @@ One very simple example is given below.
                  {'buff': Global(ary),
                   'number': Scalar(Types.short(3))},
                  """
-                    buff[get_global_id(0)] = get_global_id(0) + 3;
+                    buff[get_global_id(0)] = get_global_id(0) + number;
                    """,
-                 global_size=ary.shape).compile(thread)
+                 global_size=ary.shape).compile(thread, b_python=False)
     knl()
     assert np.allclose(ary.get(), np.arange(10) + 3)
+
+By setting the argument 'b_python=True' the kernel will be compiled in emulation mode. This mode creates a
+file 'some_operation.py', which can be inspected using a visual debugger:
+
+.. image:: https://i.imgur.com/1ftgLLV.png
+    :width: 600
 
 More advanced and useful example scenarios will be added in the future here.
