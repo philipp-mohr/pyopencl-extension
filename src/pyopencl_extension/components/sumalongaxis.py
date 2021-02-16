@@ -1,8 +1,8 @@
 from pyopencl.array import Array, empty
 
-from pyopencl_extension import ClHelpers, ClProgram, ClKernel, KnlArgBuffer, KnlArgScalar, \
-    ClInit
-from pyopencl_extension.np_cl_types import ClTypes
+from pyopencl_extension import ClHelpers, Program, Kernel, Global, Scalar, \
+    Thread
+from pyopencl_extension import Types
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -55,24 +55,24 @@ class SumAlongAxis:
                 command += '+get_global_id({})*{}'.format(axis_out_buffer, offset)
         return command
 
-    def _get_cl_program(self) -> ClProgram:
-        knl = ClKernel(name='sum_along_axis',
-                       args={'in_buffer': KnlArgBuffer(self.in_buffer),
-                             'axis': KnlArgScalar(ClTypes.int, self.axis),
-                             'out_buffer': KnlArgBuffer(self.out_buffer)},
-                       body=["""
+    def _get_cl_program(self) -> Program:
+        knl = Kernel(name='sum_along_axis',
+                     args={'in_buffer': Global(self.in_buffer),
+                           'axis': Scalar(Types.int(self.axis)),
+                           'out_buffer': Global(self.out_buffer)},
+                     body=["""
                  buff_t sum = (buff_t) 0;
                  for(int i=0; i<${size_input_axis}; i++){// i == glob_id_axis
                     sum+=in_buffer[${addr_in}];
                  }                 
                  out_buffer[${addr}] = sum;
                  """],
-                       replacements={'size_input_axis': self.in_buffer.shape[self.axis],
-                                     'addr': ClHelpers.command_compute_address(self.out_buffer.ndim),
-                                     'addr_in': self._command_compute_address_in()},
-                       global_size=self.out_buffer.shape)
+                     replacements={'size_input_axis': self.in_buffer.shape[self.axis],
+                                   'addr': ClHelpers.command_compute_address(self.out_buffer.ndim),
+                                   'addr_in': self._command_compute_address_in()},
+                     global_size=self.out_buffer.shape)
         type_defs = {'buff_t': self.in_buffer.dtype}
-        return ClProgram(type_defs=type_defs, kernels=[knl])
+        return Program(type_defs=type_defs, kernels=[knl])
 
     def __init__(self, in_buffer: Array, axis: int = 0, out_buffer: Array = None):
         self.in_buffer = in_buffer
@@ -87,7 +87,7 @@ class SumAlongAxis:
             if out_buffer.shape != shape_out:
                 raise ValueError('out buffer shape does not match required shape')
             self.out_buffer = out_buffer
-        self.program = self._get_cl_program().compile(ClInit.from_buffer(in_buffer))
+        self.program = self._get_cl_program().compile(Thread.from_buffer(in_buffer))
 
     def __call__(self, *args, **kwargs):
         self.program.sum_along_axis()

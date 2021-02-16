@@ -33,7 +33,8 @@ EXTRAS = {
         'pytest',
         'check-manifest',
         'twine',
-        'wheel'
+        'wheel',
+        'reikna'
     ]  # 'fancy feature': ['django'],
 }
 

@@ -1,13 +1,37 @@
+import os
 from typing import Union
-
-from .np_cl_types import *
-from pyopencl_extension import ClInit
+from pyopencl_extension.types.utilities_np_cl import *
+from pyopencl_extension import Thread, Path, Array
+import re
 
 __author__ = "piveloper"
 __copyright__ = "05.02.2021, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This module contains useful function when interacting with pyopencl_extension"""
+
+
+class HashArray(Array):
+    def __init__(self, *args, **kwargs):
+        if isinstance(args[0], Array):
+            a = args[0]
+            super().__init__(a.queue, a.shape, a.dtype, order="C", allocator=a.allocator,
+                             data=a.data, offset=a.offset, strides=a.strides, events=a.events, _flags=a.flags)
+        else:
+            super().__init__(*args, **kwargs)
+        self.hash = hash(self.get().tobytes())
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.update_hash()
+
+    def set(self, ary, queue=None, async_=None, **kwargs):
+        res = super().set(ary, queue, async_, **kwargs)
+        self.update_hash()
+        return res
+
+    def update_hash(self):
+        self.hash = hash(self.get().tobytes())
 
 
 class ClHelpers:
@@ -35,7 +59,7 @@ class ClHelpers:
             return dtype_scalar
         else:
             c_name = '{}{}'.format(c_name_from_dtype(dtype_scalar), number_vec_elements_of_cl_type(dtype_vec))
-            return getattr(ClTypes, c_name)
+            return getattr(Types, c_name)
 
     @staticmethod
     def array_indexing_for_vec_type(array: str, index: str, dtype: np.dtype):
@@ -133,7 +157,7 @@ class ClHelpers:
         # return None
 
     @staticmethod
-    def get_local_size_coalesced_last_dim(global_size, cl_init: ClInit):
+    def get_local_size_coalesced_last_dim(global_size, thread: Thread):
         """
         If global size is no multiple of the local size, according to following link it should not work.
         https://community.khronos.org/t/opencl-ndrange-global-size-local-size/4167
@@ -142,8 +166,8 @@ class ClHelpers:
         size is not necessarily a multiple.
 
         :param global_size:
-        :param cl_init:
+        :param thread:
         :return:
         """
-        desired_wg_size = 4 * cl_init.device.global_mem_cacheline_size
+        desired_wg_size = 4 * thread.device.global_mem_cacheline_size
         return ClHelpers._get_local_size_coalesced_last_dim(global_size, desired_wg_size)

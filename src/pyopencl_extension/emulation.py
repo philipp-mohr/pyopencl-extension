@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -19,11 +20,12 @@ __doc__ = """This script includes helpful functions to extended PyOpenCl functio
 
 from pyopencl.array import Array
 
-from pyopencl_extension.funcs_for_cl_emulation import CArray
-from pyopencl_extension.np_cl_types import c_to_np_type_name_catch, np_to_c_type_name
-from pyopencl_extension.helpers import write_string_to_file
+from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec
+from pyopencl_extension.helpers.general import write_string_to_file
 
 # following lines are used to support functions from <pyopencl-complex.h>
+from pyopencl_extension.types.utilities_np_cl import is_vector_type
+
 preamble_buff_t_complex_np = lambda cplx_t: """
 {cplx_t}_mul = lambda x, y: {cplx_t}_t(x * y)
 {cplx_t}_add = lambda x, y: {cplx_t}_t(x + y)
@@ -115,6 +117,62 @@ regex_real_imag_assignment = re.compile(r'([^\[]+)(\[)(.+)(\])(\.)(real|imag)') 
 
 names_func_require_work_item = []
 
+names_func_has_barrier = []
+
+
+class MacroWithArguments:
+    """ Explanation:
+    Consider following macro with arguments
+    #define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }
+    which is used e.g. as:
+    DFT2_TWIDDLE(u[0],u[8],mul_p0q8);
+
+    1. replace_macro_having_argument_with_function(code_c)
+    # replace defines with functions
+    # e.g. '# define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }'
+    # becomes: 'void DFT2_TWIDDLE(a,b,t){ data_t tmp = t(a-b); a += b; b = tmp; }
+
+    2. c-parser converts function to function to abstract syntax tree model
+
+    3. unparse_macro_node_and_convert_to_string:
+        In a first step this macro is converted to python code which yields:
+        def DFT2_TWIDDLE(a, b, t, wi: WorkItem = None):
+            tmp = data_t(t(a - b))
+            a += b
+            b = tmp
+
+        To achieve the same behavior as the C macro, we have to execute the python function code in the
+        scope where the function DFT2_TWIDDLE is called. The variables in the arguments have to be
+        substituted accordingly.
+        We get:
+        DFT2_TWIDDLE = 'tmp = data_t({t}({a} - {b}))\n{a} += {b}\n{b} = tmp'
+        which is used in the emulator like in the following:
+        exec(DFT2_TWIDDLE.format(a='u[0]', b='u[8]', t='mul_p0q8'))
+    """
+    names_py_macro = {}  # dictionary with executable string
+
+    @classmethod
+    def replace_with_function(cls, code_c):
+        cls.names_py_macro.clear()  # make sure that dict is empty
+        if search(regex_func_def_multi_line, code_c):
+            for _ in re.findall(regex_func_def_multi_line, code_c):
+                def_part_code_c = ''.join(_)
+                res = search(regex_func_def_multi_line, def_part_code_c)
+                func = f'void {res.group(3)}({res.group(5)}){{{res.group(9)}}}'
+                code_c = code_c.replace(def_part_code_c, func)
+
+                cls.names_py_macro[res.group(3)] = 'to be filled with python code'
+        return code_c
+
+    @classmethod
+    def unparse_macro_node_and_convert_to_string(cls, node):
+        macro = _unparse(node.body)
+        args = [p.name for p in node.decl.type.args.params]
+        for arg in args:
+            macro = re.sub(r'(?<![\w])' + arg + r'(?![\w])', f'{{{arg}}}', macro)
+        cls.names_py_macro[node.decl.name] = args
+        return f'{node.decl.name} = """{macro}"""'
+
 
 def _unparse(node: Node) -> Container:
     if isinstance(node, FuncDef):
@@ -136,7 +194,10 @@ def _unparse(node: Node) -> Container:
         if len(node.decl.funcspec) > 0:
             if node.decl.funcspec[0] == '__kernel':
                 final_yield = py_indent('yield  # required to model local memory behaviour correctly')
-        function = '{}\n{}\n{}\n'.format(header, py_indent(body), final_yield)
+        if final_yield == '':
+            function = '{}\n{}'.format(header, py_indent(body))
+        else:
+            function = '{}\n{}\n{}'.format(header, py_indent(body), final_yield)
         res = function
     elif isinstance(node, FuncDeclExt):
         args = ', '.join(['{}'.format(p.name) for p in node.args.params])
@@ -144,7 +205,7 @@ def _unparse(node: Node) -> Container:
             name = _unparse(node.type)
         else:
             raise ValueError('Not implemented')
-        res = 'def {}(wi: WorkItem, {}):'.format(name, args)
+        res = 'def {}({}, wi: WorkItem = None):'.format(name, args)
     elif isinstance(node, TypeDecl):
         res = node.declname
     elif isinstance(node, FuncCall):
@@ -166,11 +227,18 @@ def _unparse(node: Node) -> Container:
             elif func_name in translation_cl_work_item_functions:
                 res = 'wi.{}[{}]'.format(translation_cl_work_item_functions[func_name], _unparse(node.args))
             elif 'barrier' == func_name:
+                a = 1
                 res = f'\nwi.scope = locals()  # saves reference to objects in scope for debugging other wi in wg \n' \
                       f'yield  # yield models the behaviour of barrier({node.args.exprs[0].name})\n'
             else:
-                if func_name in names_func_require_work_item:
-                    res = '{}(wi, {})'.format(_unparse(node.name), _unparse(node.args))
+                if func_name in (_ := MacroWithArguments.names_py_macro):
+                    args = _unparse(node.args).split(', ')
+                    format_arg = ', '.join([f'{macro_arg}="{args[i]}"' for i, macro_arg in enumerate(_[func_name])])
+                    res = f'exec({func_name}.format({format_arg}))'
+                elif func_name in names_func_require_work_item:
+                    res = '{}({}, wi=wi)'.format(_unparse(node.name), _unparse(node.args))
+                    if func_name in names_func_has_barrier:
+                        res = f'(yield from {res})'
                 else:
                     res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
         else:
@@ -262,7 +330,7 @@ def _unparse(node: Node) -> Container:
                 else:
                     raise ValueError('Currently array initializer with multiple or non zero values not supported')
         elif node.init is None:  # real_t metric;
-            res = ''
+            res = f'{node.name} = {node.type.type.names[0]}(0)'
         else:  # int gid1=get_global_id(0);
             if isinstance(node.type, PtrDecl):
                 type_cl = node.type.type.type.names[0]
@@ -270,7 +338,7 @@ def _unparse(node: Node) -> Container:
                 type_cl = node.type.type.names[0]
             res = '{} = {}({})'.format(node.name, type_cl, _unparse(node.init))
     elif isinstance(node, ArrayDecl):
-        if len(node.type.quals) > 0 and node.type.quals[0] == '__local':
+        if len(node.type.quals) > 0 and node.type.quals[0] in ['local', '__local']:
             res = "{name} = local_memory(wi, '{name}', lambda: init_array({dim}, {dtype}))".format(
                 name=_unparse(node.type),
                 dim=_unparse(node.dim),
@@ -428,10 +496,12 @@ class WorkItem:
         if self._local is None:
             idx = 0
             n_dim = len(self.global_size)
+            # Compute linear index for work group, to retrieve local memory of particular workgroup.
+            # All local memory is modeled by self.local_memory_collection
             for i in range(n_dim):
-                offset = 0
+                offset = 1
                 for j in range(i + 1, n_dim):
-                    offset += int(self.get_global_size(j) / self.get_local_size(j))
+                    offset *= int(self.get_global_size(j) / self.get_local_size(j))
                 idx += self.get_group_id(i) * offset
             self._local = self.local_memory_collection[idx]
         return self._local
@@ -487,10 +557,18 @@ def cl_kernel(kernel):
         work_items = [WorkItem(global_id=gid, global_size=global_size, local_size=local_size,
                                local_memory_collection=local_memory_collection)
                       for gid in np.ndindex(global_size)]
-        args_python = [arg.view(CArray) if isinstance(arg, np.ndarray) else arg for arg in args_python]
+
+        def decide_ary_view(arg):
+            if is_vector_type(arg.dtype):
+                return arg.view(CArrayVec)
+            else:
+                return arg.view(CArray)
+
+        args_python = [decide_ary_view(arg) if isinstance(arg, np.ndarray) else arg
+                       for arg in args_python]
         for wi in work_items:
             wi.work_items = work_items
-        blocking_kernels = [kernel(work_item, *args_python) for work_item in work_items]
+        blocking_kernels = [kernel(*args_python, wi=work_item) for work_item in work_items]
         while True:
             try:
                 [next(knl) for knl in blocking_kernels]
@@ -504,6 +582,9 @@ def cl_kernel(kernel):
 # test regex at https://regexr.com/
 regex_constant = re.compile(r'#define[ ]+([\w]+)[ ]+([\w\.\-e]+)')  # #define PI 3.14159265358979323846\n
 regex_func_def = re.compile(r'#define[ ]+([\w]+)\(([\w, ]+)\)[ ]+([\w\.\(\)*\-+/ ]+)')  # #define MUL(x,y) (x*y)\n
+
+# #define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }
+regex_func_def_multi_line = re.compile(r'(#define)([ ]+)([\w]+)(\()([\w, ]+)(\))([ ]+)(\{)(.+)(\})')
 regex_include = re.compile(r'#include[ ]+<([\w\-\.]+>)')  # '#include <pyopencl-complex.h>\n
 regex_numbers_with_conversion_characater = re.compile(r'([\d.]+)([fd])')
 
@@ -521,11 +602,10 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
     """
     contents = line.contents
 
-    if search(regex_numbers_with_conversion_characater, contents):
-        replacement = search(regex_numbers_with_conversion_characater, contents).group(1)
+    if res := search(regex_numbers_with_conversion_characater, contents):
+        replacement = res.group(1)
         contents = re.sub(regex_numbers_with_conversion_characater, replacement, contents)
-    if search(regex_constant, contents):
-        res = search(regex_constant, contents)
+    if res := search(regex_constant, contents):
         search_convert_t = re.search(r'(convert_)([\w]+)\((.*)\)', contents)
         if search_convert_t:  # catch case e.g. LLR_MAX convert_float(200.0)
             type_name = search_convert_t.group(2)
@@ -534,8 +614,7 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
             value = res.group(2)
         name = res.group(1)
         return '{} = {}'.format(name, value)  # 'PI = 3.14159265358979323846'
-    elif search(regex_func_def, contents):
-        res = search(regex_func_def, contents)
+    elif res := search(regex_func_def, contents):
         name = res.group(1)
         args = res.group(2)
         body = res.group(3)
@@ -554,13 +633,60 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
         raise ValueError('Preprocessing line content not covered with Regex')
 
 
-preamble_typedefs_np_c = '\n'.join([f'{v} = np.dtype(\'{k}\').type' for k, v in np_to_c_type_name.items()])
-
-
 def unparse_type_def_node(node: Typedef):
     type_name_c = node.type.type.names[0]
     # return '{} = np.dtype(ClTypes.{}).type'.format(node.name, type_name_c)
-    return f'{node.name} = np.dtype(\'{c_to_np_type_name_catch(type_name_c)}\').type'
+    return f'{node.name} = {type_name_c}'
+
+
+def search_for_barrier(code_c, ast):
+    """
+    Searches for barriers inside of functions.
+    e.g. consider following c code (Pseudocode):
+    int func_nested(){
+        barrier(...);
+
+    int func_parent(){
+        func_nested()
+
+    __kernel kernel_func(){
+        func_parent
+
+    After conversion, the barrier call is emulated by making use of yield and yield from.
+
+    def func_nested():
+        barrier(...);
+
+    int func_parent():
+        return (yield from func_nested())
+
+    __kernel kernel_func():
+        (yield from func_parent)
+    """
+    code_c = code_c.split('\n')
+    lines_with_barrier = [line for line, line_content in enumerate(code_c)
+                          if 'barrier(CLK_' in line_content]
+
+    def get_start_line(_):
+        if isinstance(_, FuncDef):
+            return _.coord.line
+        elif isinstance(_, list):
+            return _[0].coord.line
+
+    line_endings = [get_start_line(_) for _ in ast.ext][1:] + [len(code_c)]
+    funcs = [{'name': _.decl.name,
+              'start_line': _.coord.line,
+              'end_line': line_endings[i],
+              'is_kernel': any(['kernel' in spec for spec in _.decl.funcspec])}
+             for i, _ in enumerate(ast.ext) if isinstance(_, FuncDef)]
+    # or funcs with nested func that has barrier
+    funcs_with_barrier = [_ for _ in funcs if
+                          any(_['start_line'] < line < _['end_line'] for line in lines_with_barrier)]
+    funcs_nested_barrier = [_ for _ in funcs if
+                            any(func['name'] in ''.join(code_c[_['start_line']:_['end_line']])
+                                for func in funcs_with_barrier)]
+
+    return [_['name'] for _ in funcs_with_barrier + funcs_nested_barrier if not _['is_kernel']]
 
 
 def unparse_c_code_to_python(code_c: str) -> str:
@@ -574,18 +700,21 @@ def unparse_c_code_to_python(code_c: str) -> str:
     code_c = re.sub(r'\/\*(\*(?!\/)|[^*])*\*\/', '', code_c)
     code_c = code_c.replace('#pragma unroll', '')
 
+    code_c = MacroWithArguments.replace_with_function(code_c)
+
     from pyopencl_extension import preamble_activate_double
     from pyopencl_extension import preamble_activate_complex_numbers
     code_c = code_c.replace(preamble_activate_complex_numbers, '')
     code_c = code_c.replace(preamble_activate_double, '')
+    code_c = code_c.replace('__const', '')  # todo: create constant array class which raises error when writing to
     # todo: comments can be extracted using line numbers. Nodes in abstract syntax tree provide coords for reinsertion
     ast = p.parse(code_c)  # abstract syntax tree, why no comments? --> https://github.com/eliben/pycparser/issues/124
     module_py = []
     header = """
 from typing import Tuple
-from pyopencl_extension.unparse import cl_kernel, WorkItem, local_memory
-from pyopencl_extension.funcs_for_cl_emulation import *
-from pyopencl_extension.np_cl_types import ClTypes, c_to_np_type_name_catch
+from pyopencl_extension.emulation import cl_kernel, WorkItem, local_memory
+from pyopencl_extension.types.funcs_for_emulation import *
+from pyopencl_extension.types.utilities_np_cl import Types, c_to_np_type_name_catch
 import numpy as np
             """
     module_py.append(header)
@@ -594,7 +723,10 @@ import numpy as np
     elif 'cdouble' in code_c:
         module_py.append(preamble_buff_t_complex128_np)
     # module_py.append(preamble_cl_funcs_to_lambdas)
-    module_py.append(preamble_typedefs_np_c)
+
+    # find funcs that contain barrier(CLK_LOCAL_MEM_FENCE) and therefore require yield from
+    names_func_has_barrier.clear()
+    names_func_has_barrier.extend(search_for_barrier(code_c, ast))
 
     names_func_require_work_item.clear()
     names_func_require_work_item.extend([node.decl.name for node in ast.ext if isinstance(node, FuncDef)])
@@ -606,8 +738,11 @@ import numpy as np
         if type(node) == Typedef:
             module_py.append(unparse_type_def_node(node))
         if isinstance(node, FuncDef):
-            module_py.append('\n\n')
-            module_py.append(unparse_function_node(node))
+            module_py.append('\n')
+            if node.decl.name in MacroWithArguments.names_py_macro:  # for explanation see comment below names_macro_func_def
+                module_py.append(MacroWithArguments.unparse_macro_node_and_convert_to_string(node))
+            else:
+                module_py.append(unparse_function_node(node))
 
     code_py = '\n'.join(module_py)
     # todo: deal with complex header
