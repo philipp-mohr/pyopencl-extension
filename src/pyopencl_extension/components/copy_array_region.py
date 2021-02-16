@@ -5,8 +5,8 @@ import numpy as np
 from pyopencl.array import Array, empty, zeros, to_device
 from pytest import mark
 
-from pyopencl_extension import ClInit, ClHelpers, ClKernel, ClProgram, \
-    c_name_from_dtype, KnlArgBuffer, KnlArgScalar, ClTypes
+from pyopencl_extension import Thread, ClHelpers, Kernel, Program, \
+    c_name_from_dtype, Global, Scalar, Types
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -145,18 +145,18 @@ class CopyArrayRegion:
         self.shape_region_out = tuple([ax[1] - ax[0] for ax in self.region_out])
         self.in_buffer = in_buffer
 
-        self.copy_array_region = ClKernel(name='copy_array_region',
-                                          args={'in_buffer': KnlArgBuffer(self.in_buffer, 'const'),
-                                                'out_buffer': KnlArgBuffer(self.out_buffer, '')},
-                                          body=["""
+        self.copy_array_region = Kernel(name='copy_array_region',
+                                        args={'in_buffer': Global(self.in_buffer, 'const'),
+                                                'out_buffer': Global(self.out_buffer, '')},
+                                        body=["""
                                   int addr_in = ${command_addr_in};
                                   int addr_out = ${command_addr_out};
                                   out_buffer[addr_out]=in_buffer[addr_in];
                                   """],
-                                          replacements={'command_addr_in': self._command_for_addr_in_computation(),
+                                        replacements={'command_addr_in': self._command_for_addr_in_computation(),
                                                         'command_addr_out': self._command_for_addr_out_computation()},
-                                          global_size=self.shape_region_out).compile(
-            cl_init=ClInit.from_buffer(in_buffer))
+                                        global_size=self.shape_region_out).compile(
+            thread=Thread.from_buffer(in_buffer))
 
     def __call__(self, *args, **kwargs):
         self.copy_array_region()
@@ -198,27 +198,27 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
     if any([(part[0] - part[1]) == 0 for part in region]):  # check that there is no empty slice
         return
     global_size = np.product([part[1] - part[0] for part in region])
-    target_shape = to_device(array.queue, np.array(array.shape).astype(ClTypes.int))
-    offset_target = to_device(array.queue, np.array([part[0] for part in region]).astype(ClTypes.int))
-    source_shape = to_device(array.queue, np.array([part[1] - part[0] for part in region]).astype(ClTypes.int))
+    target_shape = to_device(array.queue, np.array(array.shape).astype(Types.int))
+    offset_target = to_device(array.queue, np.array([part[0] for part in region]).astype(Types.int))
+    source_shape = to_device(array.queue, np.array([part[1] - part[0] for part in region]).astype(Types.int))
     source_n_dims = len(source_shape)
 
     if isinstance(value, np.ndarray):
         source = to_device(array.queue, value.astype(array.dtype))
-        arg_source = KnlArgBuffer(source)
+        arg_source = Global(source)
         code_source = 'source[get_global_id(0)]'
     else:
-        arg_source = KnlArgScalar(array.dtype)
+        arg_source = Scalar(array.dtype)
         source = value
         code_source = 'source'
 
-    knl = ClKernel('set_cl_array',
-                   {'target': KnlArgBuffer(array),
-                    'target_shape': KnlArgBuffer(target_shape),
-                    'offset_target': KnlArgBuffer(offset_target),
+    knl = Kernel('set_cl_array',
+                 {'target': Global(array),
+                    'target_shape': Global(target_shape),
+                    'offset_target': Global(offset_target),
                     'source': arg_source,
-                    'source_shape': KnlArgBuffer(source_shape),
-                    'source_n_dims': KnlArgScalar(ClTypes.int)},
+                    'source_shape': Global(source_shape),
+                    'source_n_dims': Scalar(Types.int)},
                    """
    // id_source = get_global_id(0)
    // id_source points to element of array source which replaces element with id_target in array target.
@@ -247,10 +247,10 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
    }
    target[id_target] = ${source};
                    """,
-                   replacements={'addr': ClHelpers.command_compute_address(array.ndim),
+                 replacements={'addr': ClHelpers.command_compute_address(array.ndim),
                                  'source': code_source},
-                   global_size=(global_size,)
-                   ).compile(ClInit.from_buffer(array), b_python=False)
+                 global_size=(global_size,)
+                 ).compile(Thread.from_buffer(array), b_python=False)
     knl(source=source, source_n_dims=source_n_dims)
 
 
@@ -260,8 +260,8 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
                         [4, -1, 0, 3],
                         [0, 10, 0, 3]])
 def test_cl_set(s):
-    cl_init = ClInit()
-    ary = zeros(cl_init.queue, (10, 3), ClTypes.double)
+    thread = Thread()
+    ary = zeros(thread.queue, (10, 3), Types.double)
     ary_np = ary.get()
     val = 2
     # ClSet(ary)[:, 2:3] = val
@@ -272,8 +272,8 @@ def test_cl_set(s):
 
 
 def test_cl_set_out_of_bounds():
-    cl_init = ClInit()
-    ary = zeros(cl_init.queue, (10, 3), ClTypes.double)
+    thread = Thread()
+    ary = zeros(thread.queue, (10, 3), Types.double)
     val = 2
     try:
         cl_set(ary, Slice[:100, :], val)
@@ -283,8 +283,8 @@ def test_cl_set_out_of_bounds():
 
 def test_cl_set_many_dimensions():
     s = [0, 1, 2, 3, 0, 1]
-    cl_init = ClInit()
-    ary = zeros(cl_init.queue, (10, 3, 4), ClTypes.double)
+    thread = Thread()
+    ary = zeros(thread.queue, (10, 3, 4), Types.double)
     ary_np = ary.get()
     val = 2
     # ClSet(ary)[:, 2:3] = val
@@ -297,20 +297,20 @@ class TypeConverter:
     def __init__(self, in_buffer: Array, out_buffer_dtype: np.dtype):
         self.in_buffer = in_buffer
         self.out_buffer = empty(in_buffer.queue, in_buffer.shape, dtype=out_buffer_dtype)
-        knl = ClKernel(name='type',
-                       args={'in_buffer': KnlArgBuffer(self.in_buffer, 'const'),
-                             'out_buffer': KnlArgBuffer(self.out_buffer, '')},
-                       body=["""
+        knl = Kernel(name='type',
+                     args={'in_buffer': Global(self.in_buffer, 'const'),
+                             'out_buffer': Global(self.out_buffer, '')},
+                     body=["""
                                    int addr_in = ${command_addr_in};
                                    int addr_out = ${command_addr_out};
                                    out_buffer[addr_out]=convert_${buff_out_t}(in_buffer[addr_in]);
                                    """],
-                       replacements={'command_addr_in': ClHelpers.command_compute_address(self.in_buffer.ndim),
+                     replacements={'command_addr_in': ClHelpers.command_compute_address(self.in_buffer.ndim),
                                      'command_addr_out': ClHelpers.command_compute_address(self.out_buffer.ndim),
                                      'buff_out_t': c_name_from_dtype(self.out_buffer.dtype)},
-                       global_size=self.in_buffer.shape)
-        cl_init = ClInit(queue=in_buffer.queue, context=in_buffer.context)
-        self.program = ClProgram(kernels=[knl]).compile(cl_init=cl_init, b_python=False)
+                     global_size=self.in_buffer.shape)
+        thread = Thread(queue=in_buffer.queue, context=in_buffer.context)
+        self.program = Program(kernels=[knl]).compile(thread=thread, b_python=False)
 
     def __call__(self):
         self.program.type()

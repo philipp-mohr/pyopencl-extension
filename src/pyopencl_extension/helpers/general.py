@@ -1,13 +1,13 @@
-import logging
-from functools import partial
-from pathlib import Path
-from typing import Type, cast, TypeVar
-
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
+
+import logging
+from functools import partial
+from pathlib import Path
+from typing import cast
 
 
 def typed_partial(cls, *args, **kwargs):

@@ -1,8 +1,8 @@
 from pytest import fixture
 
-from pyopencl_extension import ClInit
+from pyopencl_extension import Thread
 
 
 @fixture(scope="session")
-def cl_init():
-    return ClInit()
+def thread():
+    return Thread()

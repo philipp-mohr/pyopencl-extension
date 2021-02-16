@@ -2,8 +2,9 @@ from typing import Tuple
 
 import pyopencl as cl
 import pyopencl.array as cl_array
+from reikna.cluda import dtypes
 
-from pyopencl_extension import ClKernel, KnlArgBuffer, ClInit
+from pyopencl_extension import Kernel, Global, Thread
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -86,17 +87,17 @@ class Transpose:
         shape_out = tuple([list(in_buffer.shape)[i] for i in axes_order])
         self.out_buffer = cl.array.empty(in_buffer.queue, shape_out, dtype=in_buffer.dtype)
         self.in_buffer = in_buffer
-        self.knl = ClKernel(name='transpose',
-                       args={'in_buffer': KnlArgBuffer(self.in_buffer, 'const'),
-                             'out_buffer': KnlArgBuffer(self.out_buffer, '', True)},
-                       body=["""
+        self.knl = Kernel(name='transpose',
+                          args={'in_buffer': Global(self.in_buffer, 'const'),
+                                'out_buffer': Global(self.out_buffer, '')},
+                          body=["""
                                 int i_in = ${i_in};
                                 int i_out = ${i_out};
                                 out_buffer[i_out] = in_buffer[i_in];                       
                                """],
-                       replacements={'i_in': self._command_for_input_address_computation(),
-                                     'i_out': self._command_for_output_address_computation()},
-                       global_size=self.in_buffer.shape).compile(cl_init=ClInit.from_buffer(in_buffer))
+                          replacements={'i_in': self._command_for_input_address_computation(),
+                                        'i_out': self._command_for_output_address_computation()},
+                          global_size=self.in_buffer.shape).compile(thread=Thread.from_buffer(in_buffer))
 
     def __call__(self, *args, **kwargs):
         self.knl()
