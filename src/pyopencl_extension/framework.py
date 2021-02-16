@@ -543,7 +543,7 @@ class CallableKernel(ABC):
             return np.dtype(arg_model.dtype).type(scalar_value_provided)
         else:
             dtype_scalar = scalar_type_from_vec_type(arg_model.dtype)
-            scalar = dtype_scalar.type(scalar_value_provided)  # converts to bytes like object
+            scalar = np.dtype(dtype_scalar).type(scalar_value_provided)  # converts to bytes like object
             return scalar.astype(arg_model.dtype)  # converts to vector type
 
     @staticmethod

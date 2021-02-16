@@ -120,7 +120,9 @@ def scalar_type_from_vec_type(dtype: np.dtype) -> np.dtype:
 
 
 def number_vec_elements_of_cl_type(dtype: np.dtype) -> int:
-    if dtype.names is None:
+    if not hasattr(dtype, 'names'):
+        return 1
+    elif dtype.names is None:
         return 1
     else:
         return len(dtype.names)
