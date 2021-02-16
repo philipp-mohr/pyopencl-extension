@@ -1,6 +1,3 @@
-import time
-from math import log
-
 __author__ = "piveloper"
 __copyright__ = "10.02.2021, piveloper"
 __version__ = "1.0"
@@ -9,13 +6,11 @@ __doc__ = """This module contains the FFT operation. Radix 2 and """
 
 from typing import Tuple
 
-from pyopencl.array import zeros_like, Array, zeros
-from pytest import mark
-
-from pyopencl_extension import Function, Kernel, Scalar, Types, Global, to_device, Scalar, \
-    Global, Program, Thread, Private, set_b_use_existing_file_for_emulation, Local, logging
-from pyopencl_extension.components.copy_array_region import CopyArrayRegion, Slice
 import numpy as np
+from pyopencl.array import zeros_like, Array, zeros
+
+from pyopencl_extension import Function, Kernel, Types, Scalar, \
+    Global, Program, Thread, Private, Local
 
 
 class _FftBase:

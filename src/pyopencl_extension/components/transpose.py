@@ -2,7 +2,6 @@ from typing import Tuple
 
 import pyopencl as cl
 import pyopencl.array as cl_array
-from reikna.cluda import dtypes
 
 from pyopencl_extension import Kernel, Global, Thread
 

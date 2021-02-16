@@ -20,7 +20,7 @@ URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
 REQUIRES_PYTHON = '>=3.8.0'
-VERSION = '0.0.11'
+VERSION = '0.0.12'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
