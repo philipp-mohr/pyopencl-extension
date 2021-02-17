@@ -96,7 +96,7 @@ class MyComponentComplexExample:
                         {'some_integer': 5},
                         returns=Types.float)
         knl = Kernel('some_operation',
-                     {'buff': Global(self.buff, ''),
+                     {'buff': Global(self.buff),
                       'number': Scalar(Types.short(3.0))},
                      ["""
                                 data_t factor = convert_${data_t}(1.3);

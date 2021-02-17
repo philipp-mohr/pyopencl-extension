@@ -17,9 +17,10 @@ For any feature requests/feedback/etc. you can get in touch via
 `Github <https://github.com/piveloper/pyopencl-extension/issues>`_ or by E-Mail (piveloper@gmail.com).
 
 Installation
-=============
+------------
+Install this library with :code:`pip install pyopencl-extension`.
 
-When automatic installation of pyopencl fails (happens when using Windows):
+When automatic installation of PyOpenCl fails (happens when using Windows):
 
     1. Download appropriate .whl binary from `PyOpenCl binaries for Windows <https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyopencl>`_
 

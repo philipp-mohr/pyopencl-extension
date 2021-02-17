@@ -146,8 +146,8 @@ class CopyArrayRegion:
         self.in_buffer = in_buffer
 
         self.copy_array_region = Kernel(name='copy_array_region',
-                                        args={'in_buffer': Global(self.in_buffer, 'const'),
-                                                'out_buffer': Global(self.out_buffer, '')},
+                                        args={'in_buffer': Global(self.in_buffer, read_only=True),
+                                                'out_buffer': Global(self.out_buffer, )},
                                         body=["""
                                   int addr_in = ${command_addr_in};
                                   int addr_out = ${command_addr_out};
@@ -298,8 +298,8 @@ class TypeConverter:
         self.in_buffer = in_buffer
         self.out_buffer = empty(in_buffer.queue, in_buffer.shape, dtype=out_buffer_dtype)
         knl = Kernel(name='type',
-                     args={'in_buffer': Global(self.in_buffer, 'const'),
-                             'out_buffer': Global(self.out_buffer, '')},
+                     args={'in_buffer': Global(self.in_buffer, read_only=True),
+                             'out_buffer': Global(self.out_buffer)},
                      body=["""
                                    int addr_in = ${command_addr_in};
                                    int addr_out = ${command_addr_out};

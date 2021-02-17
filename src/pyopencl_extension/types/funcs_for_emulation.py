@@ -12,13 +12,13 @@ cdouble_t = np.dtype('complex128').type
 void = np.dtype('void').type
 
 
-class ClArrayBase(np.ndarray):
+class CArrayBase(np.ndarray):
     @property
     def np(self):
         pass
 
 
-class CArray(ClArrayBase):
+class CArray(CArrayBase):
     # https://numpy.org/doc/stable/user/basics.subclassing.html
     # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
     def __new__(cls, shape, dtype, *args, **kwargs):
@@ -51,7 +51,7 @@ class CArray(ClArrayBase):
         super().__setitem__(instance, value)
 
 
-class CArrayVec(ClArrayBase):
+class CArrayVec(CArrayBase):
     # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
     # def __new__(cls, *args, **kwargs):
     #     instance_ = super(CArrayVec, cls).__new__(cls, *args, **kwargs)
@@ -59,7 +59,12 @@ class CArrayVec(ClArrayBase):
     #     return instance_
 
     def __add__(self, other):
-        pass
+        ary = self[other:]
+        if hasattr(self, 'org'):  # keeps pointer to original allocated memory space
+            ary.org = self.org
+        else:
+            ary.org = self
+        return ary
 
     def __setitem__(self, instance, value):
         vec_size = len(self.dtype.descr)
@@ -73,8 +78,11 @@ class CArrayVec(ClArrayBase):
             # self[instance].val[field] = value.val[field]
 
     def __getitem__(self, item):
-        res = super(CArrayVec, self).__getitem__(item)
-        return VecVal(res.copy())
+        if isinstance(item, slice):
+            return super(CArrayVec, self).__getitem__(item)
+        else:
+            res = super(CArrayVec, self).__getitem__(item)
+            return VecVal(res.copy())
 
     @property
     def np(self):

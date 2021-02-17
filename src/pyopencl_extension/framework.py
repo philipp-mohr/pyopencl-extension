@@ -296,6 +296,7 @@ class Scalar(ArgBase):
 @dataclass
 class Pointer(ArgBase, ABC):
     dtype: np.dtype = field(default=Types.int)
+    address_space_qualifier: str = field(init=False, default='__global')
 
 
 @dataclass
@@ -309,30 +310,41 @@ class Local(Pointer):
 
 
 @dataclass
-class Constant(Pointer):
-    """
-    const is only a hint for the compiler that the data does not change
-    __constant leads to usage of very fast constant cache memory which is shared among
-    multiple compute units. From AMD optimization guide, e.g. we can read 4 bytes/cycles.
-    Local memory can be ready twice as fast with 8bytes/cycle, however local memory is a even more scarce resource.
-    """
-    address_space_qualifier: str = field(init=False, default='__constant')
-
-
-@dataclass
 class Global(Pointer):
     dtype: Union[np.dtype, Array] = field(default=Types.int)
-    address_space_qualifier: str = field(default='')
+    read_only: bool = False  # adds 'const' qualifier to let compiler know that global array is never written
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
-    b_return_buffer: bool = field(default=False)
+    address_space_qualifier: str = field(init=False, default='__global')
     default: Array = field(init=False, default='')
 
     def __post_init__(self):
         if isinstance(self.dtype, Array):
             self.default = self.dtype
             self.dtype = self.dtype.dtype
-        if self.address_space_qualifier != '__constant':
-            self.address_space_qualifier = '__global {}'.format(self.address_space_qualifier)
+
+            if self.read_only:
+                self.address_space_qualifier = 'const __global'
+
+
+@dataclass
+class Constant(Pointer):
+    """
+    const is only a hint for the compiler that the data does not change
+    __constant leads to usage of very fast constant cache memory which is shared among
+    multiple compute units. From AMD optimization guide, e.g. we can read 4 bytes/cycles.
+    Local memory can be ready twice as fast with 8bytes/cycle, however local memory is a even more scarce resource.
+
+    https://stackoverflow.com/questions/17991714/opencl-difference-between-constant-memory-and-const-global-memory/50931783
+    """
+    dtype: Union[np.dtype, Array] = field(default=Types.int)
+    order_in_memory: str = OrderInMemory.C_CONTIGUOUS
+    address_space_qualifier: str = field(init=False, default='__constant')
+    default: Array = field(init=False, default='')
+
+    def __post_init__(self):
+        if isinstance(self.dtype, Array):
+            self.default = self.dtype
+            self.dtype = self.dtype.dtype
 
 
 KnlArgTypes = Union[Array, ScalarArgTypes]
@@ -602,11 +614,6 @@ class CallableKernel(ABC):
                              f'kernel call')
         return global_size, local_size, args_call
 
-    @staticmethod
-    def _extract_return_arguments_from_source_program(knl: Kernel):
-        args_model = list(knl.args.values())
-        return [arg.default for arg in args_model if type(arg) == Global and arg.b_return_buffer]
-
 
 @dataclass
 class CallableKernelEmulation(CallableKernel):
@@ -622,13 +629,10 @@ class CallableKernelEmulation(CallableKernel):
         global_size, local_size, args = self._prepare_arguments(self.kernel_model, global_size=global_size,
                                                                 local_size=local_size, **kwargs)
         self.function(global_size, local_size, *args)
-        return_args = self._extract_return_arguments_from_source_program(self.kernel_model)
-        if len(return_args) == 0:
-            return None
-        elif len(return_args) == 1:
-            return return_args[0]
-        else:
-            return tuple(return_args)
+        # create user event with context retrieved from first arg of type Array
+        event = cl.UserEvent([_ for _ in args if isinstance(_, Array)][0].context)
+        event.set_status(cl.command_execution_status.COMPLETE)
+        return event
 
 
 @dataclass
@@ -639,7 +643,7 @@ class CallableKernelDevice(CallableKernel):
     def __call__(self,
                  global_size: KnlGridType = None,
                  local_size: KnlGridType = None,
-                 **kwargs):
+                 **kwargs) -> cl.Event:
         # e.g. if two kernels of a program shall run concurrently, this can be enable by passing another queue here
         if 'queue' in kwargs:
             queue = kwargs.pop('queue')
@@ -656,14 +660,7 @@ class CallableKernelDevice(CallableKernel):
                 queue.events.append((self.kernel_model.name, event))
             else:
                 raise ValueError('Forgot to disable profiling?')
-
-        return_args = self._extract_return_arguments_from_source_program(self.kernel_model)
-        if len(return_args) == 0:
-            return None
-        elif len(return_args) == 1:
-            return return_args[0]
-        else:
-            return tuple(return_args)
+        return event
 
 
 @dataclass

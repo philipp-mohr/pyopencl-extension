@@ -276,9 +276,10 @@ def test_pointer_arithmetics(thread):
     assert np.all(res_cl[0] == res_py[0])
 
 
-def test_pointer_increment(
-        thread):  # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
-    data = np.array([0]).astype(Types.char)
+@mark.parametrize('dtype', [Types.char, Types.char4], ids=['scalar type', 'vector type'])
+def test_pointer_increment(thread, dtype):
+    # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
+    data = np.array([0]).astype(dtype)
     func = Function('func',
                     {'data': Private(data.dtype)},
                     """
@@ -286,12 +287,9 @@ def test_pointer_increment(
     """, returns=data.dtype)
     knl = Kernel('knl_pointer_arithmetics',
                  {'data': data},
-                 """
-        private char a[5] = {0};
-        a[3] = 5;
-        data[0] = func(a+3);
-    """,
-                 global_size=data.shape)
+                 """ private dtype a[5] = {0};
+                     a[3] = (dtype)(5);
+                     data[0] = func(a+3); """, global_size=data.shape, type_defs={'dtype': dtype})
     prog = Program(functions=[func], kernels=[knl])
     knl_cl = prog.compile(thread).knl_pointer_arithmetics
     knl_py = prog.compile(thread, emulate=True).knl_pointer_arithmetics

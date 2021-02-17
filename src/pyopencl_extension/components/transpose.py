@@ -87,8 +87,8 @@ class Transpose:
         self.out_buffer = cl.array.empty(in_buffer.queue, shape_out, dtype=in_buffer.dtype)
         self.in_buffer = in_buffer
         self.knl = Kernel(name='transpose',
-                          args={'in_buffer': Global(self.in_buffer, 'const'),
-                                'out_buffer': Global(self.out_buffer, '')},
+                          args={'in_buffer': Global(self.in_buffer, read_only=True),
+                                'out_buffer': Global(self.out_buffer)},
                           body=["""
                                 int i_in = ${i_in};
                                 int i_out = ${i_out};
