@@ -250,7 +250,7 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
                  replacements={'addr': ClHelpers.command_compute_address(array.ndim),
                                  'source': code_source},
                  global_size=(global_size,)
-                 ).compile(Thread.from_buffer(array), b_python=False)
+                 ).compile(Thread.from_buffer(array), emulate=False)
     knl(source=source, source_n_dims=source_n_dims)
 
 
@@ -310,7 +310,7 @@ class TypeConverter:
                                      'buff_out_t': c_name_from_dtype(self.out_buffer.dtype)},
                      global_size=self.in_buffer.shape)
         thread = Thread(queue=in_buffer.queue, context=in_buffer.context)
-        self.program = Program(kernels=[knl]).compile(thread=thread, b_python=False)
+        self.program = Program(kernels=[knl]).compile(thread=thread, emulate=False)
 
     def __call__(self):
         self.program.type()

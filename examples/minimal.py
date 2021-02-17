@@ -11,6 +11,6 @@ knl = Kernel('some_operation',
              """
                 buff[get_global_id(0)] = get_global_id(0) + number;
                """,
-             global_size=ary.shape).compile(thread, b_python=True)
+             global_size=ary.shape).compile(thread, emulate=True)
 knl()
 assert np.allclose(ary.get(), np.arange(10) + 3)

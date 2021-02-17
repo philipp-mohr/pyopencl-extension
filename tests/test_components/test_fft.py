@@ -41,10 +41,10 @@ def test_fft(in_data_np):
     atol = 1e-4 if in_data_np.dtype == Types.cfloat else 1e-8
     import numpy as np
 
-    thread = Thread(b_profiling_enable=False)
+    thread = Thread(profile=False)
     in_data_cl = to_device(thread.queue, in_data_np)
 
-    fft_cl = Fft(in_data_cl, b_python=False)
+    fft_cl = Fft(in_data_cl, emulate=False)
 
     # zero padding data for numpy
     axis = 1
@@ -79,7 +79,7 @@ def test_fft(in_data_np):
     if in_data_np.size < 1024:
         # Test against emulation (commented since it is slower)
         set_b_use_existing_file_for_emulation(False)
-        fft_cl_py = Fft(in_data_cl, b_python=True)
+        fft_cl_py = Fft(in_data_cl, emulate=True)
 
         fft_in_data_cl_py = fft_cl_py()
         a = fft_in_data_cl_py.get().view(Types.cdouble)
@@ -125,7 +125,7 @@ def test_fft(in_data_np):
 
 
 def test_ifft(in_data_np):
-    thread = Thread(b_profiling_enable=False)
+    thread = Thread(profile=False)
     in_ = to_device(thread.queue, in_data_np)
     fft_cl = Fft(in_buffer=in_)
     fft_in_ = fft_cl()
@@ -134,7 +134,7 @@ def test_ifft(in_data_np):
     ifft_cl = IFft(fft_in_)
     ifft_fft_in_ = ifft_cl().get()
     if in_data_np.size < 1024:
-        ifft_cl_py = IFft(fft_in_, b_python=True)
+        ifft_cl_py = IFft(fft_in_, emulate=True)
         py_np_ifft_fft_in_ = ifft_cl_py().get()
         a = py_np_ifft_fft_in_
         b = ifft_fft_in_

@@ -120,7 +120,7 @@ def test_complex_example(thread):
 def test_complex_example_conversion_python(thread):
     component = MyComponentComplexExample(thread)
     res_cl = component().get()
-    res_py = component(b_python=True).get()
+    res_py = component(emulate=True).get()
 
     assert np.all(res_cl == res_py - res_cl)
 

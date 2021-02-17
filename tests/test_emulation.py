@@ -168,10 +168,10 @@ def test_debug_c_code_with_unary_increment_operation_inside_of_array(thread):
         buff[5] = count;
     """,
                  global_size=(1,))
-    compiled_cl = knl.compile(thread, b_python=False)
+    compiled_cl = knl.compile(thread, emulate=False)
     compiled_cl(buff=buff_cl)
     buff_py = zeros(thread.queue, (6, 1), Types.short)
-    compiled_py = knl.compile(thread, b_python=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_py = knl.compile(thread, emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     compiled_py(buff=buff_py)
     assert np.all(buff_py.get() == buff_cl.get())
 
@@ -187,10 +187,10 @@ def test_access_complex_variable(thread):
         out[get_global_id(0)].real = inp[get_global_id(0)].real; 
     """,
                  global_size=(1,))
-    compiled_cl = knl.compile(thread, b_python=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_cl = knl.compile(thread, emulate=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     compiled_cl()
     buff_out_py = zeros_like(buff_in)
-    compiled_py = knl.compile(thread, b_python=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_py = knl.compile(thread, emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     # out[0] = complex64(inp[0].real+out[0].imag*1j) instead of out[0].real=inp[0].real
     compiled_py(out=buff_out_py)
     assert np.all(buff_out.get() == buff_out_py.get())
@@ -213,10 +213,10 @@ def test_debug_kernel_with_barriers(thread):
     """,
                  global_size=(2, 4),
                  local_size=(1, 2))
-    compiled_cl = knl.compile(thread, b_python=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_cl = knl.compile(thread, emulate=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     compiled_cl()
     mem_buffer_py = zeros_like(mem_buffer)
-    compiled_py = knl.compile(thread, b_python=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_py = knl.compile(thread, emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     # out[0] = complex64(inp[0].real+out[0].imag*1j) instead of out[0].real=inp[0].real
     compiled_py(mem_glob=mem_buffer_py)
     assert np.all(mem_buffer.get() == mem_buffer_py.get())
@@ -241,7 +241,7 @@ def test_number_overflow(thread):
     """,
                  global_size=inp1.shape)
     knl_cl = knl.compile(thread)
-    knl_py = knl.compile(thread, b_python=True)
+    knl_py = knl.compile(thread, emulate=True)
     knl_cl()
     res_cl = knl_cl.out1.get(), knl_cl.out2.get()
     knl_py()
@@ -268,7 +268,7 @@ def test_pointer_arithmetics(thread):
                  global_size=data.shape)
     knl_cl = knl.compile(thread)
     emulation.set_b_use_existing_file_for_emulation(False)
-    knl_py = knl.compile(thread, b_python=True)
+    knl_py = knl.compile(thread, emulate=True)
     knl_cl()
     res_cl = knl_cl.data.get()
     knl_py()
@@ -294,7 +294,7 @@ def test_pointer_increment(
                  global_size=data.shape)
     prog = Program(functions=[func], kernels=[knl])
     knl_cl = prog.compile(thread).knl_pointer_arithmetics
-    knl_py = prog.compile(thread, b_python=True).knl_pointer_arithmetics
+    knl_py = prog.compile(thread, emulate=True).knl_pointer_arithmetics
     knl_cl()
     res_cl = knl_cl.data.get()
     knl_py()
@@ -316,7 +316,7 @@ def test_bit_shift(thread):  # todo use https://numpy.org/doc/stable/reference/g
                  global_size=data.shape)
     prog = Program(kernels=[knl])
     knl_cl = prog.compile(thread).knl_bit_packing
-    knl_py = prog.compile(thread, b_python=True).knl_bit_packing
+    knl_py = prog.compile(thread, emulate=True).knl_bit_packing
     knl_cl()
     thread.queue.finish()
     res_cl = knl_cl.data.get()
@@ -332,7 +332,7 @@ def test_bit_shift(thread):  # todo use https://numpy.org/doc/stable/reference/g
                              'for(int i=0; i !=10; i++)',
                              'for(int i=0; i <10; i++)'])
 def test_for_loop(thread, header):
-    def eval_code(b_python=False):
+    def eval_code(emulate=False):
         data = to_device(thread.queue, np.array([0]).astype(Types.char))
         knl = Kernel('knl_test_for_loop',
                      {'data': Global(data)},
@@ -342,7 +342,7 @@ def test_for_loop(thread, header):
             }
         """,
                      replacements={'header': header},
-                     global_size=data.shape).compile(thread, b_python=b_python)
+                     global_size=data.shape).compile(thread, emulate=emulate)
         knl()
         thread.queue.finish()
         res = knl.data.get()
@@ -367,7 +367,7 @@ def test_vector_types(thread):  # todo use https://numpy.org/doc/stable/referenc
     """,
                  global_size=data.shape)
     knl_cl = knl.compile(thread)
-    knl_py = knl.compile(thread, b_python=True)
+    knl_py = knl.compile(thread, emulate=True)
     knl_cl()
     thread.queue.finish()
     res_cl = knl_cl.data.get()
@@ -405,8 +405,8 @@ def test_nested_local_barrier_inside_function(thread):
                 ary[get_global_id(0)] = parent(ary, shared);
                    """, global_size=ary.shape)
     prog = Program([func_nested, func_parent], [knl])
-    prog_py = prog.compile(thread, b_python=True)
-    prog_cl = prog.compile(thread, b_python=False)
+    prog_py = prog.compile(thread, emulate=True)
+    prog_cl = prog.compile(thread, emulate=False)
     prog_py.some_knl()
 
     ary_py = ary.get()

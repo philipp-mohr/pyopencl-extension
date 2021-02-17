@@ -167,7 +167,7 @@ class Thread:
     queue: CommandQueueExtended = None
     b_compiler_output: bool = True
     # https://stackoverflow.com/questions/29068229/is-there-a-way-to-profile-an-opencl-or-a-pyopencl-program
-    b_profiling_enable: bool = False
+    profile: bool = False
     queue_properties: int = QueueProperties.DEFAULT
 
     @property
@@ -182,7 +182,7 @@ class Thread:
         if self.context is None:
             self.context = cl.create_some_context()
         if self.queue is None:
-            if self.b_profiling_enable:
+            if self.profile:
                 self.queue = CommandQueueExtended(self.context, properties=QueueProperties.PROFILING_ENABLE)
             else:
                 self.queue = CommandQueueExtended(self.context, properties=self.queue_properties)
@@ -199,7 +199,7 @@ def get_device(device: Tuple[int, int]) -> cl.Device:
     return my_gpu_devices
 
 
-def get_thread(device: Tuple[int, int], b_profiling_enable=False) -> Thread:
+def get_thread(device: Tuple[int, int], profile=False) -> Thread:
     """
     On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
 
@@ -224,7 +224,7 @@ def get_thread(device: Tuple[int, int], b_profiling_enable=False) -> Thread:
             except:
                 raise ValueError('No matching device found')
         context = cl.Context(devices=my_gpu_devices)
-    return Thread(context, b_profiling_enable=b_profiling_enable)
+    return Thread(context, profile=profile)
 
 
 def catch_invalid_argument_name(name: str):
@@ -399,7 +399,7 @@ KnlGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
 
 class Compilable:
     @abstractmethod
-    def compile(self, thread: Thread, b_python: bool = False):
+    def compile(self, thread: Thread, emulate: bool = False):
         pass
 
     @staticmethod
@@ -409,9 +409,9 @@ class Compilable:
 
 @dataclass
 class Kernel(FunctionBase, Compilable):
-    def compile(self, thread, b_python: bool = False, file='$default_path'):
-        return Program(kernels=[self]).compile(thread=thread, b_python=b_python, file=file).__getattr__(self.name)
-        # return compile_cl_kernel(self, thread, b_python=b_python, file=file)
+    def compile(self, thread, emulate: bool = False, file='$default_path'):
+        return Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file).__getattr__(self.name)
+        # return compile_cl_kernel(self, thread, emulate=emulate, file=file)
 
     global_size: KnlGridType = None
     local_size: KnlGridType = None
@@ -436,10 +436,10 @@ class Program(Compilable):
     Models an OpenCl Program containing functions or kernels.
     """
 
-    def compile(self, thread: Thread, b_python: bool = False,
+    def compile(self, thread: Thread, emulate: bool = False,
                 file: str = '$default_path') -> 'ProgramContainer':
 
-        return compile_cl_program(self, thread, b_python, file)
+        return compile_cl_program(self, thread, emulate, file)
 
     functions: List[Function] = field(default_factory=lambda: [])
     kernels: List[Kernel] = field(default_factory=lambda: [])
@@ -726,12 +726,12 @@ def compile_cl_program_emulation(program_model: Program, thread: Thread, file: s
     return callable_kernels
 
 
-def compile_cl_program(program_model: Program, thread: Thread = None, b_python: bool = False,
+def compile_cl_program(program_model: Program, thread: Thread = None, emulate: bool = False,
                        file: str = '$default_path') -> ProgramContainer:
     # deal with file name
     if isinstance(file, Path):
         file = str(file)
-    if file is None and b_python:
+    if file is None and emulate:
         raise ValueError('You intended to create no file by setting file=None. '
                          'However, a file must be created for debugging.')  # todo can python debugging run without file?
     elif file == '$default_path':
@@ -755,7 +755,7 @@ def compile_cl_program(program_model: Program, thread: Thread = None, b_python: 
                     for k, v in knl.args.items()}
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}
-    if b_python:
+    if emulate:
         dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, thread, file)
         callable_kernels = {k: CallableKernelEmulation(kernel_model=dict_kernels_program_model[k], function=v)
                             for k, v in dict_emulation_kernel_functions.items()}

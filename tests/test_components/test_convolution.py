@@ -54,7 +54,7 @@ def test_convolution():
     n_repetitions = 10
 
     # initialize context and queue
-    thread = Thread(b_profiling_enable=True)
+    thread = Thread(profile=True)
     queue = thread.queue
 
     signal_t = Types.int

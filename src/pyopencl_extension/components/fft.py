@@ -54,7 +54,7 @@ class _FftBase:
 
     @staticmethod
     def _get_kernel(radix, data_t, real_t, in_buffer, data_in, data_out, iteration: Tuple[int, int],
-                    b_inverse_fft=False, b_python=False):
+                    b_inverse_fft=False, emulate=False):
         iteration_current = iteration[0]
         iteration_max = iteration[1]
         b_inverse_fft = b_inverse_fft
@@ -342,13 +342,13 @@ class _FftBase:
         funcs_radix = [func_fft_radix_2] + funcs_radix_4 + funcs_radix_8 + functions_radix_16
         program = Program(funcs_radix + [func_exchange, func_expand, func_fft_iteration],
                           [knl_gpu_fft], defines=defines, type_defs=typedefs
-                          ).compile(Thread.from_buffer(data_in), b_python=b_python,
+                          ).compile(Thread.from_buffer(data_in), emulate=emulate,
                                     file=Program.get_default_dir_pycl_kernels().joinpath(f'fft_{iteration[0]}_{radix}'))
         return program.gpu_fft
 
-    def __init__(self, in_buffer: Array, b_inverse_fft=False, b_python=False):
+    def __init__(self, in_buffer: Array, b_inverse_fft=False, emulate=False):
         # just for debugging:
-        self.b_python = b_python
+        self.emulate = emulate
 
         # fir internal data types to input data type
         if in_buffer.dtype == Types.cfloat:
@@ -387,7 +387,7 @@ class _FftBase:
         self.kernels_for_iteration = [self._get_kernel(_radix, data_t, real_t, in_buffer,
                                                        data_in, data_out,
                                                        iteration=(_iter, len(self.schedule) - 1),
-                                                       b_inverse_fft=b_inverse_fft, b_python=b_python) for _iter, _radix
+                                                       b_inverse_fft=b_inverse_fft, emulate=emulate) for _iter, _radix
                                       in enumerate(self.schedule)]
         self.in_buffer = in_buffer
         self._in_buffer = in_buffer.view(data_t)
@@ -407,10 +407,10 @@ class _FftBase:
 
 
 class Fft(_FftBase):
-    def __init__(self, in_buffer: Array, b_python=False):
-        super().__init__(in_buffer, b_python=b_python)
+    def __init__(self, in_buffer: Array, emulate=False):
+        super().__init__(in_buffer, emulate=emulate)
 
 
 class IFft(_FftBase):
-    def __init__(self, in_buffer: Array, b_python=False):
-        super().__init__(in_buffer, b_inverse_fft=True, b_python=b_python)
+    def __init__(self, in_buffer: Array, emulate=False):
+        super().__init__(in_buffer, b_inverse_fft=True, emulate=emulate)

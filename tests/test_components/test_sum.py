@@ -25,7 +25,7 @@ def test_sum_along_axis_1d(thread):
     ary_buffer = to_device(thread.queue, ary)
 
     sum_along_axis = SumAlongAxis(ary_buffer, axis=0)
-    # res_py = sum_along_axis(b_python=True).get()
+    # res_py = sum_along_axis(emulate=True).get()
     res_cl = sum_along_axis().get()
     ref = ary.sum(axis=0)
     assert np.all(res_cl == ref)

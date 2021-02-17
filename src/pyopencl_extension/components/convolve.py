@@ -69,8 +69,8 @@ class Convolution1D:
                                      'LENGTH_IMP_RES': self.length_impulse_response},
                           global_size=global_size,
                           local_size=local_size
-                          ).compile(thread=self.thread, b_python=False)
+                          ).compile(thread=self.thread, emulate=False)
 
-    def __call__(self, b_python: bool = False, **kwargs) -> Array:
+    def __call__(self, emulate: bool = False, **kwargs) -> Array:
         self.knl()
         return self.out_buffer
