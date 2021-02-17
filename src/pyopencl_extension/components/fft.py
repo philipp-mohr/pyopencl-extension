@@ -159,7 +159,7 @@ class _FftBase:
                                """
                                  return (int)(idxL/N1)*N1*N2 + (idxL%N1);
                                  """,
-                               return_type=Types.int)
+                               returns=Types.int)
         # float2* v, int R, int idxD, int incD, int idxS, int incS
         func_exchange = Function('exchange',
                                  {'v': Private(data_t),
@@ -184,7 +184,7 @@ class _FftBase:
                                     v[r] = (data_t)(sr[i], si[i]);
                                 }
                                  """,
-                                 return_type=Types.int,
+                                 returns=Types.int,
                                  defines={'STRIDE': 1})
         # ----------------------------------------
         # Definition of radix 2 - 16 functions:
@@ -197,7 +197,7 @@ class _FftBase:
                                """)
         # mul_pxqy(a) returns a*exp(-j * PI * p / q) where p=x and q=y
         mul_pxpy_dict = {'mul_p1q2': (mul_p1q2 := 'return (data_t)(a.y,-a.x);')}
-        funcs_mulpxpy_4 = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
+        funcs_mulpxpy_4 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict.items()]
         func_fft_radix_4 = Function('fft_radix_4',
                                     {'v': Private(data_t)},
                                     """
@@ -222,7 +222,7 @@ class _FftBase:
                          'mul_p1q4': (mul_p1q4 := 'return (data_t)(SQRT_1_2)*(data_t)(a.x+a.y,-a.x+a.y);'),
                          'mul_p3q4': (mul_p3q4 := 'return (data_t)(SQRT_1_2)*(data_t)(-a.x+a.y,-a.x-a.y);'),
                          }
-        funcs_mulpxpy_8 = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
+        funcs_mulpxpy_8 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict.items()]
         func_fft_radix_8 = Function('fft_radix_8',
                                     {'v': Private(data_t)},
                                     """
@@ -269,7 +269,7 @@ class _FftBase:
 
         func_mul1 = Function('mul_1',
                              {'a': Scalar(data_t), 'b': Scalar(data_t)},
-                             'data_t x; x.even = MUL_RE(a,b); x.odd = MUL_IM(a,b); return x;', return_type=data_t,
+                             'data_t x; x.even = MUL_RE(a,b); x.odd = MUL_IM(a,b); return x;', returns=data_t,
                              defines={'MUL_RE(a,b)': '(a.even*b.even - a.odd*b.odd)',
                                       'MUL_IM(a,b)': '(a.even*b.odd + a.odd*b.even)'})
 
@@ -281,7 +281,7 @@ class _FftBase:
                          'mul_p5q8': 'return mul_1((data_t)(-SIN_8,-COS_8),a);',
                          'mul_p6q8': mul_p3q4,
                          'mul_p7q8': 'return mul_1((data_t)(-COS_8,-SIN_8),a);'}
-        funcs_mulpxpy_16 = [Function(k, {'a': Scalar(data_t)}, v, return_type=data_t) for k, v in mul_pxpy_dict.items()]
+        funcs_mulpxpy_16 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict.items()]
         funcs_mulpxpy_16[0].defines = {'COS_8': np.cos(np.pi / 8), 'SIN_8': np.sin(np.pi / 8)}
         func_fft_radix_16 = Function('fft_radix_16',
                                      {'v': Private(data_t)},

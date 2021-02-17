@@ -283,7 +283,7 @@ def test_pointer_increment(
                     {'data': Private(data.dtype)},
                     """
         return data[0];
-    """, return_type=data.dtype)
+    """, returns=data.dtype)
     knl = Kernel('knl_pointer_arithmetics',
                  {'data': data},
                  """
@@ -386,13 +386,13 @@ def test_nested_local_barrier_inside_function(thread):
                barrier(CLK_LOCAL_MEM_FENCE);
                return shared[(get_global_id(0)+1)%2] ;
                """,
-                           return_type=Types.int)
+                           returns=Types.int)
     func_parent = Function('parent',
                            func_nested.args,
                            """
                return nested_func(ary, shared);
                """,
-                           return_type=Types.int)
+                           returns=Types.int)
 
     ary = to_device(thread.queue, (ary_np := np.array([1, 2]).astype(Types.int)))
     set_b_use_existing_file_for_emulation(False)
@@ -423,7 +423,7 @@ def test_macro_with_arguments(thread):
     ary = zeros(thread.queue, (2,), Types.int)
     func_add_two = Function('add_two',
                             {'a': Scalar(Types.int)},
-                            'return a + 2;', return_type=Types.int)
+                            'return a + 2;', returns=Types.int)
     knl = Kernel('knl_macro_func',
                  {'ary': Global(ary)},
                  """

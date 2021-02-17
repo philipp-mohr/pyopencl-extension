@@ -94,7 +94,7 @@ class MyComponentComplexExample:
                                   return buffer[idx]+${some_integer};
                                   """],
                         {'some_integer': 5},
-                        Types.float)
+                        returns=Types.float)
         knl = Kernel('some_operation',
                      {'buff': Global(self.buff, ''),
                       'number': Scalar(Types.short(3.0))},

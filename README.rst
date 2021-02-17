@@ -2,7 +2,7 @@
 pyopencl-extension
 ==========================
 
-This package builds on top of pyopencl by providing an elegant programming framework and debugging capabilities.
+This package extends pyopencl by providing an elegant programming framework and debugging capabilities.
 
 What makes pyopencl-extension special?
    * Build on top of pyopencl which can increase performance significantly.
@@ -12,11 +12,14 @@ What makes pyopencl-extension special?
    * Integrated profiling features give quick overview over performance bottlenecks.
    * ...
 
+The project is in an early development stage and actively maintained.
+For any feature requests/feedback/etc. you can get in touch via
+`Github <https://github.com/piveloper/pyopencl-extension/issues>`_ or by E-Mail (piveloper@gmail.com).
 
 Installation
 =============
 
-When automatic installation of pyopencl fails (happen using Windows):
+When automatic installation of pyopencl fails (happens when using Windows):
 
     1. Download appropriate .whl binary from `PyOpenCl binaries for Windows <https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyopencl>`_
 
@@ -42,8 +45,8 @@ One very simple example is given below.
                  {'buff': Global(ary),
                   'number': Scalar(Types.short(3))},
                  """
-                    buff[get_global_id(0)] = get_global_id(0) + number;
-                   """,
+                  buff[get_global_id(0)] = get_global_id(0) + number;
+                 """,
                  global_size=ary.shape).compile(thread, b_python=False)
     knl()
     assert np.allclose(ary.get(), np.arange(10) + 3)

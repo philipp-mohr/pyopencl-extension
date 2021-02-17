@@ -346,7 +346,7 @@ def template(func: Union['Kernel', 'Function']) -> str:
     args = args[:-1]  # remove last comma
     replacements = {'name': func.name,
                     'args': args,
-                    'return_type': c_name_from_dtype(func.return_type)}
+                    'returns': c_name_from_dtype(func.returns)}
     for key, value in func.replacements.items():
         replacements[key] = str(value)
     try:  # todo: e.g. if replacement has been forgotten, still save template as file
@@ -359,13 +359,21 @@ def template(func: Union['Kernel', 'Function']) -> str:
     return tpl_formatted
 
 
+ReplacementTypes = Union[str, float, int, bool]
+
+
 @dataclass
-class ClFunctionBase(ABC):
+class FunctionBase(ABC):
     name: str = 'func'
+    args: Dict[str, Union[np.ndarray, Scalar, Global, Local, Private, Constant]] = field(default_factory=lambda: [])
+    body: Union[List[str], str] = field(default_factory=lambda: [])
+    replacements: Dict[str, ReplacementTypes] = field(default_factory=lambda: {})
+    type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
+    defines: Dict[str, ScalarArgTypes] = field(default_factory=lambda: {})
 
     @property
     def header(self):
-        return '${return_type} ${name}(${args})'
+        return '${returns} ${name}(${args})'
 
     @property
     @abstractmethod
@@ -374,17 +382,12 @@ class ClFunctionBase(ABC):
 
 
 @dataclass
-class Function(ClFunctionBase):
+class Function(FunctionBase):
     @property
     def template(self) -> str:
         return template(self)
 
-    args: Dict[str, Union[Scalar, Global, Local, Private, Constant]] = field(default_factory=lambda: [])
-    body: Union[List[str], str] = field(default_factory=lambda: [])
-    replacements: Dict[str, Union[str, float, int, bool]] = field(default_factory=lambda: {})
-    return_type: np.dtype = field(default_factory=lambda: np.dtype(np.void))
-    type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
-    defines: Dict[str, ScalarArgTypes] = field(default_factory=lambda: {})
+    returns: np.dtype = field(default_factory=lambda: np.dtype(np.void))
 
     def __post_init__(self):
         if isinstance(self.body, str):
@@ -392,7 +395,6 @@ class Function(ClFunctionBase):
 
 
 KnlGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
-KnlReplacementTypes = Union[str, float, int, bool]
 
 
 class Compilable:
@@ -406,19 +408,14 @@ class Compilable:
 
 
 @dataclass
-class Kernel(ClFunctionBase, Compilable):
+class Kernel(FunctionBase, Compilable):
     def compile(self, thread, b_python: bool = False, file='$default_path'):
         return Program(kernels=[self]).compile(thread=thread, b_python=b_python, file=file).__getattr__(self.name)
         # return compile_cl_kernel(self, thread, b_python=b_python, file=file)
 
-    args: Dict[str, Union[np.ndarray, Global, Scalar, Scalar, Global]] = field(
-        default_factory=lambda: [])
-    body: Union[List[str], str] = field(default_factory=lambda: [])
-    replacements: Dict[str, KnlReplacementTypes] = field(default_factory=lambda: {})
     global_size: KnlGridType = None
     local_size: KnlGridType = None
-    type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})
-    defines: Dict[str, ScalarArgTypes] = field(default_factory=lambda: {})
+    returns: np.dtype = field(default_factory=lambda: np.dtype(np.void), init=False)
 
     def __post_init__(self):
         if isinstance(self.body, str):
@@ -429,12 +426,8 @@ class Kernel(ClFunctionBase, Compilable):
         return template(self)
 
     @property
-    def return_type(self):
-        return np.dtype(np.void)
-
-    @property
     def header(self):
-        return '__kernel ${return_type} ${name}(${args})'
+        return '__kernel ${returns} ${name}(${args})'
 
 
 @dataclass
