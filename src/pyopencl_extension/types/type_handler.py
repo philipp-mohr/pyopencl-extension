@@ -273,7 +273,10 @@ class TypeHandlerVec:
         self._type = eval(f'tp.make_{name}')
 
     def __call__(self, *args):
-        if isinstance(args[0], VecVal):
+        from pyopencl_extension import CArray, CArrayVec
+        if isinstance(args[0], CArray) or isinstance(args[0], CArrayVec):
+            return args[0].view(self.dtype)
+        elif isinstance(args[0], VecVal):
             return args[0]
         elif len(args) == 1:
             a = self._type(*(args * len(self.dtype.names)))
@@ -304,12 +307,16 @@ def test_vec_val():
 
 
 def test_vec_val_and_carray():
-    from pyopencl_extension.funcs_for_cl_emulation import CArray
+    from pyopencl_extension.types.funcs_for_emulation import CArray
     from pyopencl_extension import Types
-    import cltypes_emulation as tp_emulation
+    import pyopencl_extension.types.auto_gen.types_for_emulation as tp_emulation
     a = tp_emulation.long2(1, 2)
     b = tp_emulation.long2(1, 2)
 
     ary = CArray((10,), Types.long2)
     ary[0] = a + b
     assert ary[0].val == tp_emulation.long2(2, 4).val
+
+    ary = CArray((10,), Types.long2)
+    ary_typed = tp_emulation.long4(ary)
+    assert ary_typed.dtype == Types.long4

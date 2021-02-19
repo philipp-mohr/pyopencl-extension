@@ -9,7 +9,7 @@ from typing import Tuple, List
 import numpy as np
 from pycparser.c_ast import BinaryOp, ID, IdentifierType, Return, Constant, Assignment, Decl, FuncDef, Node, TypeDecl, \
     FuncCall, ExprList, Compound, ArrayRef, For, If, Cast, ArrayDecl, UnaryOp, While, Break, InitList, Typedef, \
-    StructRef, PtrDecl
+    StructRef, PtrDecl, TernaryOp
 from pycparserext.ext_c_parser import FuncDeclExt, PreprocessorLine, OpenCLCParser
 
 __author__ = "piveloper"
@@ -329,8 +329,11 @@ def _unparse(node: Node) -> Container:
                     res = '{}\n{}.fill({})'.format(array_decl, node.type.type.declname, array_fill[0])
                 else:
                     raise ValueError('Currently array initializer with multiple or non zero values not supported')
-        elif node.init is None:  # real_t metric;
-            res = f'{node.name} = {node.type.type.names[0]}(0)'
+        elif node.init is None:
+            if isinstance(node.type, PtrDecl): # e.g. float *x;
+                res = f'{node.name} = {node.type.type.type.names[0]}(0)'
+            else: # e.g. float x;
+                res = f'{node.name} = {node.type.type.names[0]}(0)'
         else:  # int gid1=get_global_id(0);
             if isinstance(node.type, PtrDecl):
                 type_cl = node.type.type.type.names[0]
@@ -409,6 +412,8 @@ def _unparse(node: Node) -> Container:
             res = '{}{}'.format(node.op, _unparse(node.expr))
     elif isinstance(node, StructRef):
         res = f'{_unparse(node.name)}.{_unparse(node.field)}'
+    elif isinstance(node, TernaryOp):
+        res = f'{_unparse(node.iftrue)} if {_unparse(node.cond)} else {_unparse(node.iffalse)}'
     elif node is None:
         res = ''
     else:
@@ -682,9 +687,9 @@ def search_for_barrier(code_c, ast):
     # or funcs with nested func that has barrier
     funcs_with_barrier = [_ for _ in funcs if
                           any(_['start_line'] < line < _['end_line'] for line in lines_with_barrier)]
-    funcs_nested_barrier = [_ for _ in funcs if
-                            any(func['name'] in ''.join(code_c[_['start_line']:_['end_line']])
-                                for func in funcs_with_barrier)]
+    funcs_nested_barrier = [_ for _ in funcs if any(re.search(r'(\W)(' + func['name'] + r')(\W)',
+                                                              ''.join(code_c[_['start_line']:_['end_line']]))
+                                                    for func in funcs_with_barrier)]
 
     return [_['name'] for _ in funcs_with_barrier + funcs_nested_barrier if not _['is_kernel']]
 
@@ -745,6 +750,7 @@ import numpy as np
                 module_py.append(unparse_function_node(node))
 
     code_py = '\n'.join(module_py)
+    code_py = code_py + '\n'
     # todo: deal with complex header
     # if 'cfloat_t' in code_c:
     #     preamble_buff_t = preamble_buff_t_complex64_np

@@ -285,16 +285,21 @@ def test_pointer_increment(thread, dtype):
                     """
         return data[0];
     """, returns=data.dtype)
+    # Assigning to array pointers does not work in c (e.g. b=a does not compile):
+    # https://stackoverflow.com/questions/744536/c-array-declaration-and-assignment
+    # Below this can be solved by creating pointers p1 and p2 where their address can be exchange by assignment
     knl = Kernel('knl_pointer_arithmetics',
                  {'data': data},
-                 """ private dtype a[5] = {0};
-                     a[3] = (dtype)(5);
-                     data[0] = func(a+3); """, global_size=data.shape, type_defs={'dtype': dtype})
+                 """ private dtype a[5] = {0}; private dtype b[5] = {0};
+                     dtype *p1 = a; dtype *p2 = b;
+                     a[3] = (dtype)(5);                     
+                     p2 = a;
+                     data[0] = func(p2+3); """, global_size=data.shape, type_defs={'dtype': dtype})
     prog = Program(functions=[func], kernels=[knl])
     knl_cl = prog.compile(thread).knl_pointer_arithmetics
-    knl_py = prog.compile(thread, emulate=True).knl_pointer_arithmetics
     knl_cl()
     res_cl = knl_cl.data.get()
+    knl_py = prog.compile(thread, emulate=True).knl_pointer_arithmetics
     knl_py()
     res_py = knl_cl.data.get()
     assert np.all(res_cl[0] == res_py[0])
@@ -434,3 +439,22 @@ def test_macro_with_arguments(thread):
                  global_size=ary.shape)
     Program([func_add_two], [knl]).compile(thread).knl_macro_func()
     assert np.allclose(ary.get(), np.array([4, 4]).astype(ary.dtype))
+
+
+# this test acts as an integration test, testing multiple different c operations:
+# -ternary operator (e.g. x=cond ? a:b;)
+# - ...
+# Testing with one large integration test reduces test time compared to multiple individual tests.
+def test_different_c_operations_at_once(thread):
+    ary = zeros(thread.queue, (2,), Types.int)
+    knl = Kernel('knl_multiple_c_operations',
+                 {'ary': Global(ary)},
+                 """int a = 1;
+                    int b = 2;
+                    dtype val; // test variable definition without assignment
+                    dtype *ptr1; // test pointer definition 
+                    global dtype *ptr2; // test global pointer definition 
+                    ary[get_global_id(0)] = a>get_global_id(0) ? a : b;
+                 """, global_size=ary.shape, type_defs={'dtype': ary.dtype}).compile(thread, emulate=True)
+    knl()
+    assert np.allclose(ary.get(), np.array([1, 2]).astype(ary.dtype))
