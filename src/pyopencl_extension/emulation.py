@@ -1,6 +1,8 @@
+import inspect
 import logging
 import os
 import re
+from collections import namedtuple
 from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import indent
@@ -18,9 +20,11 @@ __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
 
+from pyopencl._cl import LocalMemory
+
 from pyopencl.array import Array
 
-from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec
+from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec, init_array
 from pyopencl_extension.helpers.general import write_string_to_file
 
 # following lines are used to support functions from <pyopencl-complex.h>
@@ -174,21 +178,47 @@ class MacroWithArguments:
         return f'{node.decl.name} = """{macro}"""'
 
 
+def _unparse_header(args, node):
+    if isinstance(node.type, TypeDecl):
+        name = _unparse(node.type)
+    else:
+        raise ValueError('Not implemented')
+    return 'def {}({}, wi: WorkItem = None):'.format(name, args)
+
+
+def _unparse_func_header(node):
+    args = ', '.join(['{}'.format(p.name) for p in node.args.params])
+    return _unparse_header(args, node)
+
+
+def _unparse_knl_header(node):
+    """
+    If kernel header includes local memory argument, the underlying datatype is extracted.
+    e.g. __kernel some_knl(__local short *local_mem)
+    is converted in emulation .py file as:
+    @cl_kernel
+    def some_knl(local_mem: short):
+    Later, the datatype "short" is extracted to type the array local_mem in emulation mode.
+    """
+    args = ', '.join(['{}'.format(p.name) if not any(q in ['local', '__local'] for q in p.quals)
+                      else f'{p.name}: {_unparse(p.type.type.type.names[0])}'
+                      for p in node.args.params])
+    return _unparse_header(args, node)
+
+
 def _unparse(node: Node) -> Container:
     if isinstance(node, FuncDef):
         # check if function is kernel
-        header = _unparse(node.decl.type)
+
         if len(node.decl.funcspec) > 0:
             if node.decl.funcspec[0] == '__kernel':
+                header = _unparse_knl_header(node.decl.type)
                 header = f'@cl_kernel\n{header}'
             else:
                 raise ValueError('Func spec not supported')
+        else:
+            header = _unparse(node.decl.type)
 
-        # if len(dcl.funcspec) == 0:
-        #     args = ','.join(['{}'.format(p.type.declname) for p in dcl.type.args.params])
-        # else:
-        #     if dcl.funcspec[0] == '__kernel':
-        #         pass
         body = _unparse(node.body)
         final_yield = ''
         if len(node.decl.funcspec) > 0:
@@ -200,12 +230,7 @@ def _unparse(node: Node) -> Container:
             function = '{}\n{}\n{}'.format(header, py_indent(body), final_yield)
         res = function
     elif isinstance(node, FuncDeclExt):
-        args = ', '.join(['{}'.format(p.name) for p in node.args.params])
-        if isinstance(node.type, TypeDecl):
-            name = _unparse(node.type)
-        else:
-            raise ValueError('Not implemented')
-        res = 'def {}({}, wi: WorkItem = None):'.format(name, args)
+        res = _unparse_func_header(node)
     elif isinstance(node, TypeDecl):
         res = node.declname
     elif isinstance(node, FuncCall):
@@ -330,9 +355,9 @@ def _unparse(node: Node) -> Container:
                 else:
                     raise ValueError('Currently array initializer with multiple or non zero values not supported')
         elif node.init is None:
-            if isinstance(node.type, PtrDecl): # e.g. float *x;
+            if isinstance(node.type, PtrDecl):  # e.g. float *x;
                 res = f'{node.name} = {node.type.type.type.names[0]}(0)'
-            else: # e.g. float x;
+            else:  # e.g. float x;
                 res = f'{node.name} = {node.type.type.names[0]}(0)'
         else:  # int gid1=get_global_id(0);
             if isinstance(node.type, PtrDecl):
@@ -563,6 +588,21 @@ def cl_kernel(kernel):
                                local_memory_collection=local_memory_collection)
                       for gid in np.ndindex(global_size)]
 
+        # filter for local memory arguments and initialize local memory for each work group
+        _args_python = []
+        LocalArg = namedtuple('LocalArg', 'name')
+        for position, arg in enumerate(args_python):
+            if isinstance(arg, LocalMemory):
+                arg_name = (_ := inspect.getfullargspec(kernel)).args[position]
+                arg_type = _.annotations[arg_name]
+                for loc_mem in local_memory_collection:
+                    loc_mem[arg_name] = init_array(size=int(arg.size / np.dtype(arg_type.dtype).itemsize),
+                                                   type_c=arg_type)
+                _args_python.append(LocalArg(arg_name))
+            else:
+                _args_python.append(arg)
+        args_python = _args_python
+
         def decide_ary_view(arg):
             if is_vector_type(arg.dtype):
                 return arg.view(CArrayVec)
@@ -573,7 +613,8 @@ def cl_kernel(kernel):
                        for arg in args_python]
         for wi in work_items:
             wi.work_items = work_items
-        blocking_kernels = [kernel(*args_python, wi=work_item) for work_item in work_items]
+        blocking_kernels = [kernel(*[work_item.local[arg.name] if isinstance(arg, LocalArg) else arg
+                                     for arg in args_python], wi=work_item) for work_item in work_items]
         while True:
             try:
                 [next(knl) for knl in blocking_kernels]
@@ -781,7 +822,7 @@ def create_py_file_and_load_module(code_py: str, file: str = None):
     :return:
     """
     if file is None:
-        file = str('py_cl_kernels/debug_file')
+        file = str('cl_py_modules/debug_file')
     path_code_py = '{}.py'.format(file)
     # hack solution for making changes in generated python cl program directly. When rerunning, those changes are not
     # overridden

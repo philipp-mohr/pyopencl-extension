@@ -43,19 +43,19 @@ One very simple example is given below.
     ary = zeros(thread.queue, (10,), Types.short)
 
     knl = Kernel('some_operation',
-                 {'buff': Global(ary),
-                  'number': Scalar(Types.short(3))},
+                 {'ary': Global(ary),  # notice that ary is set as default argument
+                  'number': Scalar(Types.short)},
                  """
-                  buff[get_global_id(0)] = get_global_id(0) + number;
+                    ary[get_global_id(0)] = get_global_id(0) + number;
                  """,
-                 global_size=ary.shape).compile(thread, emulate=False)
-    knl()
+                 global_size=ary.shape).compile(thread, emulate=True)
+    knl(number=3)
     assert np.allclose(ary.get(), np.arange(10) + 3)
 
 By setting the argument 'emulate=True' the kernel will be compiled in emulation mode. This mode creates a
 file 'some_operation.py', which can be inspected using a visual debugger:
 
-.. image:: https://i.imgur.com/5ze4fv9.png
+.. image:: https://i.imgur.com/Gfg9AtZ.png
     :width: 600
 
-More advanced and useful example scenarios will be added in the future here.
+More advanced examples can by found in the `tests hosted on  Github <https://github.com/piveloper/pyopencl-extension/tree/main/tests>`_.

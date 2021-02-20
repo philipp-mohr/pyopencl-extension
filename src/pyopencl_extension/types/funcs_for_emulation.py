@@ -111,6 +111,8 @@ def init_array(size, type_c):
         return np.ones((size,), dtype=c_to_np_type_name_catch(type_c.dtype)).view(CArray)
     elif isinstance(type_c, TypeHandlerVec):
         return np.ones((size,), dtype=type_c.dtype).view(CArrayVec)
+    else:
+        raise ValueError(f'Array initialized with {str(type_c)} not supported')
 
 
 # init_array = lambda size, type_c: np.empty((size,), dtype=c_to_np_type_name_catch(type_c))

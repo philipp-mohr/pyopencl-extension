@@ -305,8 +305,26 @@ class Private(Pointer):
 
 
 @dataclass
+class LocalArray:
+    shape: int
+    dtype: np.dtype
+    cl_local_memory: cl.LocalMemory = field(init=False, default=None)
+
+    def __post_init__(self):
+        self.cl_local_memory = cl.LocalMemory(int(self.shape * np.dtype(self.dtype).itemsize))
+
+
+@dataclass
 class Local(Pointer):
+    dtype: Union[np.dtype, LocalArray] = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__local')
+    order_in_memory: str = OrderInMemory.C_CONTIGUOUS
+    default: cl.LocalMemory = field(init=False, default=None)
+
+    def __post_init__(self):
+        if isinstance(self.dtype, LocalArray):
+            self.default = self.dtype.cl_local_memory
+            self.dtype = self.dtype.dtype
 
 
 @dataclass
@@ -416,7 +434,7 @@ class Compilable:
 
     @staticmethod
     def get_default_dir_pycl_kernels():
-        return Path(os.getcwd()).joinpath('py_cl_kernels')
+        return Path(os.getcwd()).joinpath('cl_py_modules')
 
 
 @dataclass
@@ -565,7 +583,7 @@ class CallableKernel(ABC):
             raise ValueError(
                 f'keyword argument {kw_not_in_kernel_arguments} does not exist in kernel argument list {supported_kws}')
         # set default arguments. Looping over kernel model forces correct order of arguments
-        args_call = [kwargs.pop(key, value.default if isinstance(value, (Global, Scalar)) else None)
+        args_call = [kwargs.pop(key, value.default if isinstance(value, (Constant, Global, Scalar, Local)) else None)
                      for key, value in knl.args.items()]
         if any(arg is None for arg in args_call):
             raise ValueError('Argument equal to None can lead to system crash')
@@ -583,6 +601,8 @@ class CallableKernel(ABC):
         args_call = [CallableKernel._typing_scalar_argument(args_model[i], arg)
                      if type(args_model[i]) in [Scalar, Scalar] else arg
                      for i, arg in enumerate(args_call)]
+        # if argument of type LocalArray extract cl.LocalMemory instance to be passed as argument
+        args_call = [arg.cl_local_memory if isinstance(arg, LocalArray) else arg for arg in args_call]
         # check if buffer have same type as defined in the kernel function header
         b_types_equal = [args_call[i].dtype == v.dtype for i, v in enumerate(args_model) if isinstance(v, Global)]
         if not np.all(b_types_equal):

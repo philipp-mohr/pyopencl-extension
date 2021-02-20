@@ -1,15 +1,9 @@
-__author__ = "piveloper"
-__copyright__ = "10.02.2021, piveloper"
-__version__ = "1.0"
-__email__ = "piveloper@gmail.com"
-__doc__ = """This module contains tests for the FFT operation. Radix 2 and """
-
-from pyopencl_extension.components.fft import Fft, IFft
-from pyopencl_extension import Types, to_device, Thread, set_b_use_existing_file_for_emulation
+from pyopencl_extension import Types, to_device, Thread, set_b_use_existing_file_for_emulation, Fft, IFft
 
 import time
 from pytest import mark, fixture
 import numpy as np
+
 
 
 def get_in_data_cplx(M, N, dtype=Types.cdouble):

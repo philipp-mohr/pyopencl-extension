@@ -11,6 +11,13 @@ __email__ = "piveloper@gmail.com"
 __doc__ = """This module contains useful function when interacting with pyopencl_extension"""
 
 
+def int_safe(val: float):
+    if val.is_integer():
+        return int(val)
+    else:
+        raise ValueError(f'val={val} is no integer')
+
+
 class HashArray(Array):
     def __init__(self, *args, **kwargs):
         if isinstance(args[0], Array):

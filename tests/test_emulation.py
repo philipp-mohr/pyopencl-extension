@@ -2,8 +2,10 @@ from pathlib import Path
 
 import numpy as np
 from pyopencl import Program as pyopencl_program
+from pyopencl._cl import LocalMemory
 from pyopencl.array import zeros, zeros_like, to_device
-from pyopencl_extension import emulation, set_b_use_existing_file_for_emulation, Local, Global, Global, Local, Scalar
+from pyopencl_extension import emulation, set_b_use_existing_file_for_emulation, Local, Global, Global, Local, Scalar, \
+    LocalArray
 from pyopencl_extension import unparse_c_code_to_python, create_py_file_and_load_module, Types, Kernel, \
     Global, Function, Program, Private
 from pytest import mark
@@ -458,3 +460,29 @@ def test_different_c_operations_at_once(thread):
                  """, global_size=ary.shape, type_defs={'dtype': ary.dtype}).compile(thread, emulate=True)
     knl()
     assert np.allclose(ary.get(), np.array([1, 2]).astype(ary.dtype))
+
+
+@mark.parametrize(argnames='data_t', argvalues=[Types.short, Types.double])
+def test_local_memory_as_kernel_argument(thread, data_t):
+    def run(emulate=False):
+        ary = to_device(thread.queue, np.ones(10).astype(data_t))
+        local_mem = LocalArray(dtype=data_t, shape=5)  # 5 is to to test that local array argument is changed
+        knl = Kernel('knl_local_arg',
+                     {'ary': Global(ary), 'local_mem': Local(local_mem)},
+                     """
+               for(int i=0; i<10; i++) local_mem[i] = ary[i];
+               barrier(CLK_GLOBAL_MEM_FENCE);
+               data_t sum = (data_t)(0);
+               for(int i=0; i<10; i++) sum+=local_mem[i];
+               ary[get_global_id(0)] = sum;
+                     """,
+                     type_defs={'data_t': data_t},
+                     global_size=ary.shape,
+                     local_size=(1,))
+        local_mem = LocalArray(dtype=data_t, shape=10)
+        knl.compile(thread, emulate=emulate)(local_mem=local_mem)
+        return ary.get()
+
+    ary_cl = run(emulate=False)
+    ary_py = run(emulate=True)
+    assert np.allclose(ary_cl, ary_py) and np.allclose(ary_cl, 10 * np.ones(10).astype(ary_py.dtype))

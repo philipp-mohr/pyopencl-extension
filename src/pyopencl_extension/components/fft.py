@@ -4,7 +4,7 @@ __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This module contains the FFT operation. Radix 2 and """
 
-from typing import Tuple
+from dataclasses import dataclass
 
 import numpy as np
 from pyopencl.array import zeros_like, Array, zeros
@@ -13,179 +13,31 @@ from pyopencl_extension import Function, Kernel, Types, Scalar, \
     Global, Program, Thread, Private, Local
 
 
-class _FftBase:
-    """
-    Implementation of reference algorithm [1, Fig. 2] (where only radix 2 kernel is provided)
-    A reference for higher radix kernels can be found in [2]
+@dataclass
+class FftStageBuilder:
+    radix: int
+    data_t: np.dtype
+    real_t: np.dtype
+    fft_size: int
+    global_mem_cacheline_size: int
+    size_data_in_first_iteration: int
+    iteration_max: int
+    b_local_memory: bool = False
 
-    [1] N. K. Govindaraju, B. Lloyd, Y. Dotsenko, B. Smith, und J. Manferdelli, „High performance discrete Fourier
-    transforms on graphics processors“, in 2008 SC - International Conference for High Performance Computing,
-    Networking, Storage and Analysis, Austin, TX, Nov. 2008, S. 1–12, doi: 10.1109/SC.2008.5213922.
+    def get_funcs_for_all_stages(self):
+        conf = self
+        typedefs = {'data_t': (data_t := conf.data_t),
+                    'real_t': (real_t := conf.real_t)}
 
-    [2] http://www.bealto.com/gpu-fft_opencl-2.html
-    """
-
-    def __call__(self, *args, **kwargs):
-        data_in = self._in_buffer
-        data_out = self._data_out
-        Ns = 1
-        for iteration, radix in enumerate(self.schedule):
-            self.kernels_for_iteration[iteration](Ns=Ns,
-                                                  data_in=data_in,
-                                                  data_out=data_out)
-            Ns = Ns * radix
-            if iteration == 0:
-                data_in = self._data_in  # map data_in to internal buffer with correct power of two size
-            data_in, data_out = data_out, data_in  # swap
-        return data_in.view(self.in_buffer.dtype).reshape(self._out_shape)
-
-    @staticmethod
-    def _get_mixed_radix_schedule(N, radixes):
-        _radixes = [r for r in radixes if r <= int(N / 2)]  # if N is very short do not use large radix ffts
-        schedule = []
-        n = N
-        while n != 1:
-            _radix = radixes[np.argmax([(n / i).is_integer() for i in radixes])]
-            schedule.append(_radix)
-            n /= _radix
-            if not n.is_integer():
-                raise ValueError('Something went wrong. n must be integer')
-        return schedule# [2 for _ in range(int(log(N, 2)))]
-
-    @staticmethod
-    def _get_kernel(radix, data_t, real_t, in_buffer, data_in, data_out, iteration: Tuple[int, int],
-                    b_inverse_fft=False, emulate=False):
-        iteration_current = iteration[0]
-        iteration_max = iteration[1]
-        b_inverse_fft = b_inverse_fft
-
-        typedefs = {'data_t': data_t,
-                    'real_t': real_t}
-        R = radix
+        R = conf.radix
         defines = {'R': R,
-                   'N': (N := data_in.shape[1]),
-                   'M': (M := data_in.shape[0]),  # number of FFTs to perform simultaneously
+                   'N': (N := conf.fft_size),
                    # work group size:
-                   'T': (T := min(int(N / R), Thread.from_buffer(data_in).device.global_mem_cacheline_size)),
-                   'CW': (CW := Thread.from_buffer(data_in).device.global_mem_cacheline_size)  # Coalescing width
+                   'T': (T := min(int(N / R), conf.global_mem_cacheline_size)),
+                   'CW': (CW := conf.global_mem_cacheline_size),  # Coalescing width,
+                   'N_INPUT': conf.size_data_in_first_iteration,  # in_buffer length which might not be power of two
+                   'ITERATION_MAX': self.iteration_max,  # in_buffer length which might not be power of two
                    }
-        knl_gpu_fft = Kernel('gpu_fft',
-                             {'Ns': Scalar(Types.int),
-                              # In each iteration, the algorithm can be thought of combining the radix R FFTs on
-                              # subsequences of length Ns into the FFT of a new sequence of length RNs by
-                              # performing an FFT of length R on the corresponding elements of the subsequences.
-                              'data_in': Global(data_in, '__const'),
-                              'data_out': Global(data_out)},
-                             """
-                 local real_t shared[(int)(2*T*R)];//2*Ns];//T*R];
-                 int t = get_local_id(2);
-                 int b = get_global_id(1); 
-                 int j = b*T + t; // as proposed in [1, p.3, text section A]
-                 fft_iteration(j, Ns, data_in, data_out, shared);
-                 """,
-                             global_size=(M, max(1, int(N / (R * T))), T),
-                             local_size=(1, 1, T))
-        # defaults:
-        v_from_data0 = 'v[r] = data0[(int)(offset_block + idxS)];'
-        data_1_from_v = 'data1[idxD] = v[r];'
-        # modification of defaults dependent on iteration and if inverse fft is required
-        if iteration_current == 0:  # data0 is in_buffer, whose length might not be power of two
-            defines['N_INPUT'] = in_buffer.shape[1]  # in_buffer length which might not be power of two
-            v_from_data0 = \
-                'int _offset_block=get_global_id(0)*N_INPUT;' \
-                'if(idxS<N_INPUT){' \
-                '   v[r]=data0[(int)(_offset_block + idxS)];' \
-                '}else{' \
-                '   v[r]=(data_t)(0.0, 0.0);' \
-                '}'
-            if b_inverse_fft:  # inverse fft: swap imaginary and real part
-                v_from_data0 += 'v[r] = (data_t)(v[r].s1, v[r].s0);'
-        elif iteration_current == iteration_max and b_inverse_fft:
-            # inverse fft: swap imaginary and real part when writing data and scale by 1/N
-            data_1_from_v = 'data1[idxD] = (data_t)((float)(1.0/N)) * (data_t)(v[r].s1, v[r].s0);'
-
-        replacements = {'v_from_data0': v_from_data0,
-                        'fft_radix_R': f'fft_radix_{R}',
-                        'data_1_from_v': data_1_from_v}
-
-        func_fft_iteration = Function('fft_iteration',
-                                      {'j': Scalar(Types.int),
-                                       'Ns': Scalar(Types.int),
-                                       'data0': Global(data_in.dtype, '__const'),
-                                       'data1': Global(data_out.dtype),
-                                       'shared': Local(real_t)},
-                                      """
-        int offset_block = get_global_id(0)*N;
-        private data_t v[R];
-        real_t angle = -2*PI*(j % Ns)/(Ns*R);
-        for(int r=0; r<R; r++){
-            int idxS = j + r* N/R; // idxS=idxSource
-            ${v_from_data0}
-            real_t cos_angle = cos(r*angle);
-            real_t sin_angle = sin(r*angle);
-            v[r] = (data_t)(v[r].s0*cos_angle-v[r].s1 *sin_angle,
-                            v[r].s0*sin_angle+v[r].s1 *cos_angle);
-        }
-        ${fft_radix_R}(v);
-
-        if(Ns>=CW){ // todo: remove condition and store as separate kernel
-            // changed line 27 of [1, Figure 2] to work with global dimensions of this class:
-            int offset = offset_block + expand(j, Ns, R); 
-            for(int r=0; r<R; r++){
-                int idxD = offset + r*Ns; // idxD=idxDestination
-                ${data_1_from_v}
-            }
-        }else{ // According to [1, p.4], such that global memory writes are coalesced
-            int b = get_global_id(1);
-            int t = get_local_id(2);
-            // !! mistake in [1] where *Ns is missing: idxD = (int)(t/Ns)*R + (t%Ns); !!
-            int idxD = (int)(t/Ns)*Ns*R + (t%Ns);
-            exchange( v, idxD, Ns, t, T, shared);
-            int offset = offset_block + b*R*T+ t; 
-            for( int r=0; r<R; r++ ){
-                idxD = offset + r*T;
-                ${data_1_from_v}
-            }  
-        }
-                   """,
-                                      replacements=replacements
-                                      )
-        # [1]: The expand() function can be thought of as inserting a dimension of length N2 after the first
-        # dimension of length N1 in a linearized index.
-        func_expand = Function('expand',
-                               {'idxL': Scalar(Types.int),
-                                'N1': Scalar(Types.int),
-                                'N2': Scalar(Types.int)},
-                               """
-                                 return (int)(idxL/N1)*N1*N2 + (idxL%N1);
-                                 """,
-                               returns=Types.int)
-        # float2* v, int R, int idxD, int incD, int idxS, int incS
-        func_exchange = Function('exchange',
-                                 {'v': Private(data_t),
-                                  'idxD': Scalar(Types.int),
-                                  'incD': Scalar(Types.int),
-                                  'idxS': Scalar(Types.int),
-                                  'incS': Scalar(Types.int),
-                                  'shared': Local(real_t),
-                                  },
-                                 """
-                                __local real_t* sr = shared; // vector with real part
-                                __local real_t* si = shared+T*R; // vector with imaginary part
-                                barrier(CLK_LOCAL_MEM_FENCE);
-                                for( int r=0; r<R; r++ ) {
-                                    int i = (idxD + r*incD)*STRIDE;
-                                    sr[i] = v[r].s0;
-                                    si[i] = v[r].s1;
-                                }
-                                barrier(CLK_LOCAL_MEM_FENCE);
-                                for(int r=0; r<R; r++ ) {
-                                    int i = (idxS + r*incS)*STRIDE;
-                                    v[r] = (data_t)(sr[i], si[i]);
-                                }
-                                 """,
-                                 returns=Types.int,
-                                 defines={'STRIDE': 1})
         # ----------------------------------------
         # Definition of radix 2 - 16 functions:
         func_fft_radix_2 = Function('fft_radix_2',
@@ -338,17 +190,216 @@ class _FftBase:
                                     """,
                                      defines={'DFT2_TWIDDLE(a,b,t)': '{ data_t tmp = t(a-b); a += b; b = tmp; }'})
         functions_radix_16 = [func_mul1] + funcs_mulpxpy_16 + [func_fft_radix_16]
-
         funcs_radix = [func_fft_radix_2] + funcs_radix_4 + funcs_radix_8 + functions_radix_16
-        program = Program(funcs_radix + [func_exchange, func_expand, func_fft_iteration],
-                          [knl_gpu_fft], defines=defines, type_defs=typedefs
+
+        # [1]: The expand() function can be thought of as inserting a dimension of length N2 after the first
+        # dimension of length N1 in a linearized index.
+        func_expand = Function('expand',
+                               {'idxL': Scalar(Types.int),
+                                'N1': Scalar(Types.int),
+                                'N2': Scalar(Types.int)},
+                               """
+                                 return (int)(idxL/N1)*N1*N2 + (idxL%N1);
+                                 """,
+                               returns=Types.int)
+        # float2* v, int R, int idxD, int incD, int idxS, int incS
+        func_exchange = Function('exchange',
+                                 {'v': Private(data_t),
+                                  'idxD': Scalar(Types.int),
+                                  'incD': Scalar(Types.int),
+                                  'idxS': Scalar(Types.int),
+                                  'incS': Scalar(Types.int),
+                                  'shared': Local(real_t),
+                                  },
+                                 """
+                                __local real_t* sr = shared; // vector with real part
+                                __local real_t* si = shared+T*R; // vector with imaginary part
+                                barrier(CLK_LOCAL_MEM_FENCE);
+                                for( int r=0; r<R; r++ ) {
+                                    int i = (idxD + r*incD)*STRIDE;
+                                    sr[i] = v[r].s0;
+                                    si[i] = v[r].s1;
+                                }
+                                barrier(CLK_LOCAL_MEM_FENCE);
+                                for(int r=0; r<R; r++ ) {
+                                    int i = (idxS + r*incS)*STRIDE;
+                                    v[r] = (data_t)(sr[i], si[i]);
+                                }
+                                 """,
+                                 returns=Types.int,
+                                 defines={'STRIDE': 1})
+        func_v_from_data0 = Function('v_from_data0',
+                                     {'v': Private(self.data_t),
+                                      'data0': Local(self.data_t) if self.b_local_memory else Global(self.data_t,
+                                                                                                     read_only=True),
+                                      'idxS': Scalar(Types.int),
+                                      'r': Scalar(Types.int),
+                                      'direction': Scalar(Types.int),
+                                      'iteration': Scalar(Types.int)},
+                                     """
+                 if(iteration ==0){
+                     if(idxS<N_INPUT){
+                        v[r]=data0[(int)(idxS)];
+                     }else{
+                        v[r]=(data_t)(0.0, 0.0);
+                     }
+                     if(direction == -1){
+                        v[r] = (data_t)(v[r].s1, v[r].s0);
+                     }
+                 }else{
+                    v[r] = data0[(int)(idxS)];
+                 }
+                 """)
+        func_data_1_from_v = Function('data_1_from_v',
+                                      {'v': Private(self.data_t),
+                                       'data1': Local(self.data_t) if self.b_local_memory else Global(self.data_t),
+                                       'idxD': Scalar(Types.int),
+                                       'r': Scalar(Types.int),
+                                       'direction': Scalar(Types.int),
+                                       'iteration': Scalar(Types.int)},
+                                      """
+                 if(iteration==ITERATION_MAX && direction == -1){
+                    data1[idxD] = (data_t)((float)(1.0/N)) * (data_t)(v[r].s1, v[r].s0);
+                 }else{
+                    data1[idxD] = v[r];
+                 }
+                 """)
+        shared_memory_init = 'local real_t shared[(int)(2*T*R)];//2*Ns];//T*R];'
+        return funcs_radix + [func_exchange, func_expand, func_v_from_data0, func_data_1_from_v], \
+               typedefs, defines, shared_memory_init
+
+    def get_fft_stage_func(self):
+        replacements = {'fft_radix_R': f'fft_radix_{self.radix}'}
+        func_fft_iteration = Function('fft_stage', {
+            # thread index: T radix R fft ops are done in parallel
+            't': Scalar(Types.int),
+            # thread block index: identifies block of N/(R*T) blocks.
+            'b': Scalar(Types.int),
+            'Ns': Scalar(Types.int),
+            'data0': Local(self.data_t) if self.b_local_memory else Global(self.data_t, read_only=True),
+            'data1': Local(self.data_t) if self.b_local_memory else Global(self.data_t),
+            'shared': Local(self.real_t),
+            'direction': Scalar(Types.int),
+            'iteration': Scalar(Types.int)},
+                                      """
+        int j = b*T + t; // as proposed in [1, p.3, text section A]
+        private data_t v[R];        
+        real_t angle = -2*PI*(j % Ns)/(Ns*R);
+        for(int r=0; r<R; r++){
+            int idxS = j + r* N/R; // idxS=idxSource
+            v_from_data0(v, data0, idxS, r, direction,iteration);
+            real_t cos_angle = cos(r*angle);
+            real_t sin_angle = sin(r*angle);
+            v[r] = (data_t)(v[r].s0*cos_angle-v[r].s1 *sin_angle,
+                            v[r].s0*sin_angle+v[r].s1 *cos_angle);
+        }
+        ${fft_radix_R}(v);
+
+        if(Ns>=CW){ // todo: remove condition and store as separate kernel
+            // changed line 27 of [1, Figure 2] to work with global dimensions of this class:
+            int offset = expand(j, Ns, R); 
+            for(int r=0; r<R; r++){
+                int idxD = offset + r*Ns; // idxD=idxDestination
+                data_1_from_v(v, data1, idxD, r, direction, iteration);
+            }
+        }else{ // According to [1, p.4], such that global memory writes are coalesced
+            // !! mistake in [1] where *Ns is missing: idxD = (int)(t/Ns)*R + (t%Ns); !!
+            int idxD = (int)(t/Ns)*Ns*R + (t%Ns);
+            exchange( v, idxD, Ns, t, T, shared);
+            int offset = b*R*T+ t; 
+            for( int r=0; r<R; r++ ){
+                idxD = offset + r*T;
+                data_1_from_v(v, data1, idxD, r, direction, iteration);
+            }  
+        }
+                   """,
+                                      replacements=replacements)
+        return func_fft_iteration
+
+
+class FftBase:
+    """
+    Implementation of reference algorithm [1, Fig. 2] (where only radix 2 kernel is provided)
+    A reference for higher radix kernels can be found in [2]
+
+    [1] N. K. Govindaraju, B. Lloyd, Y. Dotsenko, B. Smith, und J. Manferdelli, „High performance discrete Fourier
+    transforms on graphics processors“, in 2008 SC - International Conference for High Performance Computing,
+    Networking, Storage and Analysis, Austin, TX, Nov. 2008, S. 1–12, doi: 10.1109/SC.2008.5213922.
+
+    [2] http://www.bealto.com/gpu-fft_opencl-2.html
+    """
+
+    def __call__(self, *args, **kwargs):
+        data_in = self._in_buffer
+        data_out = self._data_out
+        Ns = 1
+        for iteration, radix in enumerate(self.schedule):
+            self.kernels_for_iteration[iteration](Ns=Ns,
+                                                  data_in=data_in,
+                                                  data_out=data_out,
+                                                  direction=self.direction,
+                                                  iteration=iteration)
+            Ns = Ns * radix
+            if iteration == 0:
+                data_in = self._data_in  # map data_in to internal buffer with correct power of two size
+            data_in, data_out = data_out, data_in  # swap
+        return data_in.view(self.in_buffer.dtype).reshape(self._out_shape)
+
+    @staticmethod
+    def get_mixed_radix_schedule(N, radixes):
+        _radixes = [r for r in radixes if r <= int(N / 2)]  # if N is very short do not use large radix ffts
+        schedule = []
+        n = N
+        while n != 1:
+            _radix = radixes[np.argmax([(n / i).is_integer() for i in radixes])]
+            schedule.append(_radix)
+            n /= _radix
+            if not n.is_integer():
+                raise ValueError('Something went wrong. n must be integer')
+        return schedule  # [2 for _ in range(int(log(N, 2)))]
+
+    @staticmethod
+    def _get_kernel(stage_builder: FftStageBuilder, iteration, radix, data_in, data_out, emulate=False):
+        if iteration == 0:  # data0 is in_buffer, whose length might not be power of two
+            offset_data_in = 'get_global_id(0)*N_INPUT'
+        else:
+            offset_data_in = 'get_global_id(0)*N'
+        stage_builder.radix = radix
+        funcs, type_defs, d, shared_mem_fft_stage = stage_builder.get_funcs_for_all_stages()
+        funcs.append(stage_builder.get_fft_stage_func())
+        d['M'] = (M := data_in.shape[0])  # number of FFTs to perform simultaneously
+        knl_gpu_fft = Kernel('gpu_fft',
+                             {'Ns': Scalar(Types.int),
+                              # In each iteration, the algorithm can be thought of combining the radix R FFTs on
+                              # subsequences of length Ns into the FFT of a new sequence of length RNs by
+                              # performing an FFT of length R on the corresponding elements of the subsequences.
+                              'data_in': Global(data_in),
+                              'data_out': Global(data_out),
+                              'direction': Scalar(Types.int),
+                              'iteration': Scalar(Types.int)},
+                             """
+                 ${shared_mem_fft_stage}
+                 int t = get_local_id(2); // thread index 
+                 int b = get_global_id(1); // thread block index
+                 fft_stage(t, b, Ns, 
+                           data_in  +${offset_data_in},
+                           data_out +get_global_id(0)*N,
+                           shared,direction, iteration);""",
+                             replacements={'offset_data_in': offset_data_in,
+                                           'shared_mem_fft_stage': shared_mem_fft_stage},
+                             global_size=(d['M'], max(1, int(d['N'] / (d['R'] * d['T']))), d['T']),
+                             local_size=(1, 1, d['T']))
+        program = Program(funcs,
+                          [knl_gpu_fft], defines=d, type_defs=type_defs
                           ).compile(Thread.from_buffer(data_in), emulate=emulate,
-                                    file=Program.get_default_dir_pycl_kernels().joinpath(f'fft_{iteration[0]}_{radix}'))
+                                    file=Program.get_default_dir_pycl_kernels().joinpath(
+                                        f'fft_{iteration}_{stage_builder.radix}'))
         return program.gpu_fft
 
     def __init__(self, in_buffer: Array, b_inverse_fft=False, emulate=False):
         # just for debugging:
         self.emulate = emulate
+        self.direction = -1 if b_inverse_fft else +1
 
         # fir internal data types to input data type
         if in_buffer.dtype == Types.cfloat:
@@ -382,13 +433,18 @@ class _FftBase:
         data_in = zeros(in_buffer.queue, (M, N), data_t)
         data_out = zeros_like(data_in)
 
-        radixes =[16, 8, 4, 2]  # available radix ffts
-        self.schedule = self._get_mixed_radix_schedule(N, radixes)
-        self.kernels_for_iteration = [self._get_kernel(_radix, data_t, real_t, in_buffer,
-                                                       data_in, data_out,
-                                                       iteration=(_iter, len(self.schedule) - 1),
-                                                       b_inverse_fft=b_inverse_fft, emulate=emulate) for _iter, _radix
-                                      in enumerate(self.schedule)]
+        radixes = [16, 8, 4, 2]  # available radix ffts
+        self.schedule = self.get_mixed_radix_schedule(N, radixes)
+        fft_stage_builder = FftStageBuilder(
+            radix=2,  # might change according to schedule
+            data_t=data_t, real_t=real_t,
+            fft_size=N,
+            global_mem_cacheline_size=Thread.from_buffer(in_buffer).device.global_mem_cacheline_size,
+            size_data_in_first_iteration=in_buffer.shape[1], iteration_max=len(self.schedule) - 1)
+        self.kernels_for_iteration = [
+            self._get_kernel(fft_stage_builder, iteration=_iter, radix=_radix, data_in=data_in, data_out=data_out,
+                             emulate=emulate) for _iter, _radix
+            in enumerate(self.schedule)]
         self.in_buffer = in_buffer
         self._in_buffer = in_buffer.view(data_t)
         self._data_in = data_in
@@ -406,11 +462,11 @@ class _FftBase:
         #     pass
 
 
-class Fft(_FftBase):
+class Fft(FftBase):
     def __init__(self, in_buffer: Array, emulate=False):
         super().__init__(in_buffer, emulate=emulate)
 
 
-class IFft(_FftBase):
+class IFft(FftBase):
     def __init__(self, in_buffer: Array, emulate=False):
         super().__init__(in_buffer, b_inverse_fft=True, emulate=emulate)
