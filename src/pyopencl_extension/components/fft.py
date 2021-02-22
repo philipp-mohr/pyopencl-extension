@@ -226,7 +226,6 @@ class FftStageBuilder:
                                     v[r] = (data_t)(sr[i], si[i]);
                                 }
                                  """,
-                                 returns=Types.int,
                                  defines={'STRIDE': 1})
         func_v_from_data0 = Function('v_from_data0',
                                      {'v': Private(self.data_t),

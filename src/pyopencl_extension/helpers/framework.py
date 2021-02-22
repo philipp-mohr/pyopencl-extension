@@ -23,7 +23,7 @@ class HashArray(Array):
         if isinstance(args[0], Array):
             a = args[0]
             super().__init__(a.queue, a.shape, a.dtype, order="C", allocator=a.allocator,
-                             data=a.data, offset=a.offset, strides=a.strides, events=a.events, _flags=a.flags)
+                             data=a.data, offset=a.offset, strides=a.strides, events=a.events)
         else:
             super().__init__(*args, **kwargs)
         self.hash = hash(self.get().tobytes())
