@@ -1,5 +1,4 @@
 from .framework import *
-from .helpers.framework import ClHelpers
 from .helpers.general import *
 from .types.utilities_np_cl import *
 from .components.transpose import Transpose

@@ -20,9 +20,12 @@ __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
 
+# make sure emulation does not import anything from framework, to avoid circular imports
+# framework does depends on emulation and not the other way around.
 from pyopencl._cl import LocalMemory
 
 from pyopencl.array import Array
+from pytest import mark
 
 from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec, init_array
 from pyopencl_extension.helpers.general import write_string_to_file
@@ -471,6 +474,7 @@ class WorkItem:
     local_size: Tuple[int]
     local_memory_collection: List[dict]
     _local: dict = field(init=False, default=None)
+    _group_id_lin: int = None  #
     _scope: dict = None
     work_items: List['WorkItem'] = None
     local_id: Tuple[int] = None
@@ -484,6 +488,7 @@ class WorkItem:
         self.local_id = tuple([self.get_local_id(i) for i in range(n_dim)])
         self.num_groups = tuple([self.get_num_groups(i) for i in range(n_dim)])
         self.group_id = tuple([self.get_group_id(i) for i in range(n_dim)])
+        self._group_id_lin = compute_linear_idx(self.group_id, self.num_groups)
 
     @property
     def info(self):
@@ -524,16 +529,9 @@ class WorkItem:
     @property
     def local(self) -> dict:
         if self._local is None:
-            idx = 0
-            n_dim = len(self.global_size)
-            # Compute linear index for work group, to retrieve local memory of particular workgroup.
+            # Use linear index for work group, to retrieve local memory of particular workgroup.
             # All local memory is modeled by self.local_memory_collection
-            for i in range(n_dim):
-                offset = 1
-                for j in range(i + 1, n_dim):
-                    offset *= int(self.get_global_size(j) / self.get_local_size(j))
-                idx += self.get_group_id(i) * offset
-            self._local = self.local_memory_collection[idx]
+            self._local = self.local_memory_collection[self._group_id_lin]
         return self._local
 
     def get_global_id(self, dim):
@@ -613,13 +611,25 @@ def cl_kernel(kernel):
                        for arg in args_python]
         for wi in work_items:
             wi.work_items = work_items
-        blocking_kernels = [kernel(*[work_item.local[arg.name] if isinstance(arg, LocalArg) else arg
-                                     for arg in args_python], wi=work_item) for work_item in work_items]
-        while True:
-            try:
-                [next(knl) for knl in blocking_kernels]
-            except StopIteration:
-                break
+
+        # Assign work items to individual work groups. Items of a work group can by synchronized using barriers.
+        # However, synchronization between work groups is not possible according to OpenCl standard.
+        # https://stackoverflow.com/questions/6890302/barriers-in-opencl
+        work_items_per_wg = [[] for _ in range(num_work_groups)]
+        for wi in work_items:
+            work_items_per_wg[compute_linear_idx(wi.group_id, wi.num_groups)].append(wi)
+
+        def prepare_args(work_item):
+            return [work_item.local[arg.name] if isinstance(arg, LocalArg) else arg for arg in args_python]
+
+        for i_wg in range(num_work_groups):
+            blocking_kernels = [kernel(*prepare_args(work_item), wi=work_item)
+                                for work_item in work_items_per_wg[i_wg]]
+            while True:
+                try:
+                    [next(knl) for knl in blocking_kernels]
+                except StopIteration:
+                    break
         [arg.set(args_python[idx]) if isinstance(arg, Array) else arg for idx, arg in enumerate(args)]
 
     return wrapper_loop_over_grid
@@ -836,3 +846,33 @@ def create_py_file_and_load_module(code_py: str, file: str = None):
     program_python = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(program_python)
     return program_python
+
+
+def compute_linear_idx(idx_tuple, dimensions)->int:
+    idx = 0
+    n_dim = len(dimensions)
+    for i in range(n_dim):
+        offset = 1
+        for j in range(i + 1, n_dim):
+            offset *= int(dimensions[j])  # self.get_global_size(j) / self.get_local_size(j)
+        idx += idx_tuple[i] * offset
+    return idx
+
+
+def compute_tuple_idx(idx_lin, dimensions):
+    n_dim = len(dimensions)
+    idx_tuple = [0] * n_dim
+    for _i in range(n_dim):
+        i = n_dim - 1 - _i
+        idx_lin, idx_tuple[i] = divmod(idx_lin, dimensions[i])
+    return tuple(idx_tuple)
+
+
+@mark.parametrize('idx_tuple,dimensions, idx_lin_ref', [((1, 2, 0), (2, 4, 2), 12),
+                                                        ((1, 2), (2, 4), 6),
+                                                        ((1,), (2,), 1)])
+def test_compute_tuple_from_idx_linear(idx_tuple, dimensions, idx_lin_ref):
+    idx_lin = compute_linear_idx(idx_tuple, dimensions)
+    assert idx_lin == idx_lin_ref
+    idx_tuple2 = compute_tuple_idx(idx_lin, dimensions)
+    assert idx_tuple == idx_tuple2

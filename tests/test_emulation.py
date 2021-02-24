@@ -470,19 +470,29 @@ def test_local_memory_as_kernel_argument(thread, data_t):
         knl = Kernel('knl_local_arg',
                      {'ary': Global(ary), 'local_mem': Local(local_mem)},
                      """
-               for(int i=0; i<10; i++) local_mem[i] = ary[i];
-               barrier(CLK_GLOBAL_MEM_FENCE);
+               int offset = get_group_id(0)*get_local_size(0);
+               for(int i=0; i<5; i++) local_mem[i] = ary[offset + i];
+               barrier(CLK_LOCAL_MEM_FENCE);
                data_t sum = (data_t)(0);
-               for(int i=0; i<10; i++) sum+=local_mem[i];
+               for(int i=0; i<5; i++) sum+=local_mem[i];
                ary[get_global_id(0)] = sum;
                      """,
                      type_defs={'data_t': data_t},
                      global_size=ary.shape,
-                     local_size=(1,))
-        local_mem = LocalArray(dtype=data_t, shape=10)
+                     local_size=(5,))
+        local_mem = LocalArray(dtype=data_t, shape=5)
         knl.compile(thread, emulate=emulate)(local_mem=local_mem)
         return ary.get()
 
     ary_cl = run(emulate=False)
     ary_py = run(emulate=True)
-    assert np.allclose(ary_cl, ary_py) and np.allclose(ary_cl, 10 * np.ones(10).astype(ary_py.dtype))
+    assert np.allclose(ary_cl, ary_py) and np.allclose(ary_cl, 5 * np.ones(10).astype(ary_py.dtype))
+
+# constants in global scope cannot be set from host.
+# https://stackoverflow.com/questions/7140820/opencl-initializing-program-scope-variables-from-the-host
+# def test_program_scope_variable(thread):
+#     pass
+
+
+def test_barrier_global_local_mem_fence():
+    pass

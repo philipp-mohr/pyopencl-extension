@@ -6,8 +6,7 @@ from pyopencl.array import zeros, Array, to_device
 
 from pyopencl_extension import ClHelpers, Thread, Types, Program, Kernel, Global, \
     Scalar, \
-    Function, Scalar, Global, c_name_from_dtype
-from pyopencl_extension.helpers.framework import HashArray
+    Function, Scalar, Global, c_name_from_dtype, HashArray
 
 
 class MyComponentAutomaticArgs:

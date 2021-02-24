@@ -58,8 +58,8 @@ def test_fft(in_data_np):
             ts.append(t2 - t1)
         return min(ts)
 
-    import pyfftw
-    t_fftw = measure(lambda: pyfftw.interfaces.numpy_fft.fft(in_data_np_power_of_two, axis=-1))
+    # import pyfftw
+    # t_fftw = measure(lambda: pyfftw.interfaces.numpy_fft.fft(in_data_np_power_of_two, axis=-1))
     t_np = measure(lambda: np.fft.fft(in_data_np_power_of_two, axis=-1))
     fft_in_data_np = np.fft.fft(in_data_np_power_of_two, axis=-1)
 
