@@ -5,12 +5,207 @@ __email__ = "piveloper@gmail.com"
 __doc__ = """This module contains the FFT operation. Radix 2 and """
 
 from dataclasses import dataclass
+from typing import List
 
 import numpy as np
 from pyopencl.array import zeros_like, Array, zeros
 
 from pyopencl_extension import Function, Kernel, Types, Scalar, \
     Global, Program, Thread, Private, Local
+
+
+# Definition of radix 2 - 16 functions:
+
+def get_funcs_radix2(data_t):
+    func_fft_radix_2 = Function('fft_radix_2',
+                                {'v': Private(data_t)},
+                                """
+                           data_t v0= v[0];
+                           v[0] = v0 + v[1];
+                           v[1] = v0 - v[1];
+                           """)
+    return [], func_fft_radix_2
+
+
+mul_pxpy_dict4 = {'mul_p1q2': (mul_p1q2 := 'return (data_t)(a.y,-a.x);')}
+
+
+def get_funcs_radix4(data_t):
+    # mul_pxqy(a) returns a*exp(-j * PI * p / q) where p=x and q=y
+    funcs_mulpxpy_4 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict4.items()]
+    func_fft_radix_4 = Function('fft_radix_4',
+                                {'v': Private(data_t)},
+                                """
+            // 2x DFT2 and twiddle
+            data_t v0 = v[0] + v[2];
+            data_t v1 = v[0] - v[2];
+            data_t v2 = v[1] + v[3];
+            data_t v3 = mul_p1q2(v[1] - v[3]); // twiddle
+
+            // 2x DFT2 and store
+            v[0] = v0 + v2;
+            v[1] = v1 + v3;
+            v[2] = v0 - v2;
+            v[3] = v1 - v3;
+                                """)
+    return funcs_mulpxpy_4, func_fft_radix_4
+
+
+mul_pxpy_dict8 = {**{'mul_p0q2': (mul_p0q2 := 'return a;'),
+                     'mul_p0q4': mul_p0q2,
+                     'mul_p2q4': (mul_p2q4 := mul_p1q2),
+                     'mul_p1q4': (mul_p1q4 := 'return (data_t)(SQRT_1_2)*(data_t)(a.x+a.y,-a.x+a.y);'),
+                     'mul_p3q4': (mul_p3q4 := 'return (data_t)(SQRT_1_2)*(data_t)(-a.x+a.y,-a.x-a.y);')},
+                  **mul_pxpy_dict4}
+
+
+def get_funcs_radix8(data_t):
+    funcs_mulpxpy_8 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict8.items()]
+    func_fft_radix_8 = Function('fft_radix_8',
+                                {'v': Private(data_t)},
+                                """
+            // 4x in-place DFT2
+            data_t u0 = v[0];
+            data_t u1 = v[1];
+            data_t u2 = v[2];
+            data_t u3 = v[3];
+            data_t u4 = v[4];
+            data_t u5 = v[5];
+            data_t u6 = v[6];
+            data_t u7 = v[7];
+
+            data_t v0 = u0 + u4;
+            data_t v4 = mul_p0q4(u0 - u4);
+            data_t v1 = u1 + u5;
+            data_t v5 = mul_p1q4(u1 - u5);
+            data_t v2 = u2 + u6;
+            data_t v6 = mul_p2q4(u2 - u6);
+            data_t v3 = u3 + u7;
+            data_t v7 = mul_p3q4(u3 - u7);
+
+            // 4x in-place DFT2 and twiddle
+            u0 = v0 + v2;
+            u2 = mul_p0q2(v0 - v2);
+            u1 = v1 + v3;
+            u3 = mul_p1q2(v1 - v3);
+            u4 = v4 + v6;
+            u6 = mul_p0q2(v4 - v6);
+            u5 = v5 + v7;
+            u7 = mul_p1q2(v5 - v7);
+
+            // 4x DFT2 and store (reverse binary permutation)
+            v[0]   = u0 + u1;
+            v[1]   = u4 + u5;
+            v[2] = u2 + u3;
+            v[3] = u6 + u7;
+            v[4] = u0 - u1;
+            v[5] = u4 - u5;
+            v[6] = u2 - u3;
+            v[7] = u6 - u7;
+                                """)
+    return funcs_mulpxpy_8, func_fft_radix_8
+
+
+mul_pxpy_dict16 = {**{'mul_p0q8 ': mul_p0q2,
+                      'mul_p1q8': 'return mul_1((data_t)(COS_8,-SIN_8),a);',
+                      'mul_p2q8': mul_p1q4,
+                      'mul_p3q8': 'return mul_1((data_t)(SIN_8,-COS_8),a);',
+                      'mul_p4q8 ': mul_p2q4,
+                      'mul_p5q8': 'return mul_1((data_t)(-SIN_8,-COS_8),a);',
+                      'mul_p6q8': mul_p3q4,
+                      'mul_p7q8': 'return mul_1((data_t)(-COS_8,-SIN_8),a);'}, **mul_pxpy_dict8}
+
+
+def get_funcs_radix16(data_t):
+    func_mul1 = Function('mul_1',
+                         {'a': Scalar(data_t), 'b': Scalar(data_t)},
+                         'data_t x; x.even = MUL_RE(a,b); x.odd = MUL_IM(a,b); return x;', returns=data_t,
+                         defines={'MUL_RE(a,b)': '(a.even*b.even - a.odd*b.odd)',
+                                  'MUL_IM(a,b)': '(a.even*b.odd + a.odd*b.even)'})
+
+    funcs_mulpxpy_16 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict16.items()]
+    funcs_mulpxpy_16[0].defines = {'COS_8': np.cos(np.pi / 8), 'SIN_8': np.sin(np.pi / 8)}
+    func_fft_radix_16 = Function('fft_radix_16',
+                                 {'v': Private(data_t)},
+                                 """
+            data_t u[16];
+            for (int m=0;m<16;m++) u[m] = v[m];
+            // 8x in-place DFT2 and twiddle (1)
+            DFT2_TWIDDLE(u[0],u[8],mul_p0q8);
+            DFT2_TWIDDLE(u[1],u[9],mul_p1q8);
+            DFT2_TWIDDLE(u[2],u[10],mul_p2q8);
+            DFT2_TWIDDLE(u[3],u[11],mul_p3q8);
+            DFT2_TWIDDLE(u[4],u[12],mul_p4q8);
+            DFT2_TWIDDLE(u[5],u[13],mul_p5q8);
+            DFT2_TWIDDLE(u[6],u[14],mul_p6q8);
+            DFT2_TWIDDLE(u[7],u[15],mul_p7q8);
+
+            // 8x in-place DFT2 and twiddle (2)
+            DFT2_TWIDDLE(u[0],u[4],mul_p0q4);
+            DFT2_TWIDDLE(u[1],u[5],mul_p1q4);
+            DFT2_TWIDDLE(u[2],u[6],mul_p2q4);
+            DFT2_TWIDDLE(u[3],u[7],mul_p3q4);
+            DFT2_TWIDDLE(u[8],u[12],mul_p0q4);
+            DFT2_TWIDDLE(u[9],u[13],mul_p1q4);
+            DFT2_TWIDDLE(u[10],u[14],mul_p2q4);
+            DFT2_TWIDDLE(u[11],u[15],mul_p3q4);
+
+            // 8x in-place DFT2 and twiddle (3)
+            DFT2_TWIDDLE(u[0],u[2],mul_p0q2);
+            DFT2_TWIDDLE(u[1],u[3],mul_p1q2);
+            DFT2_TWIDDLE(u[4],u[6],mul_p0q2);
+            DFT2_TWIDDLE(u[5],u[7],mul_p1q2);
+            DFT2_TWIDDLE(u[8],u[10],mul_p0q2);
+            DFT2_TWIDDLE(u[9],u[11],mul_p1q2);
+            DFT2_TWIDDLE(u[12],u[14],mul_p0q2);
+            DFT2_TWIDDLE(u[13],u[15],mul_p1q2);
+
+            // 8x DFT2 and store (reverse binary permutation)
+            v[0]  = u[0]  + u[1];
+            v[1]  = u[8]  + u[9];
+            v[2]  = u[4]  + u[5];
+            v[3]  = u[12] + u[13];
+            v[4]  = u[2]  + u[3];
+            v[5]  = u[10] + u[11];
+            v[6]  = u[6]  + u[7];
+            v[7]  = u[14] + u[15];
+            v[8]  = u[0]  - u[1];
+            v[9]  = u[8]  - u[9];
+            v[10] = u[4]  - u[5];
+            v[11] = u[12] - u[13];
+            v[12] = u[2]  - u[3];
+            v[13] = u[10] - u[11];
+            v[14] = u[6]  - u[7];
+            v[15] = u[14] - u[15];
+                                """,
+                                 defines={'DFT2_TWIDDLE(a,b,t)': '{ data_t tmp = t(a-b); a += b; b = tmp; }'})
+    funcs_helpers = [func_mul1] + funcs_mulpxpy_16
+    return funcs_helpers, func_fft_radix_16
+
+
+dict_radix_funcs = {
+    2: get_funcs_radix2,
+    4: get_funcs_radix4,
+    8: get_funcs_radix8,
+    16: get_funcs_radix16,
+}
+
+
+def get_funcs_radixes(radixes, data_t: np.dtype):
+    # makes sure radixes are in order, since higher radix functions use function loaded for lower radixes.
+    radixes = sorted(radixes)
+    defines_radices = {'SQRT_1_2': np.cos(np.pi / 4)}
+    funcs = [dict_radix_funcs[r](data_t) for r in radixes]
+    # filter out duplicate helpers
+    helpers = list({helper.name: helper for helpers, _ in funcs for helper in helpers}.values())
+    func_radices = [func for _, func in funcs]
+    return helpers + func_radices, defines_radices
+
+
+def test_get_funcs_radixes():
+    res = get_funcs_radixes([8, 16], Types.float2)
+    assert res[0][-2].name == 'fft_radix_8'
+    assert res[0][-1].name == 'fft_radix_16'
 
 
 @dataclass
@@ -24,7 +219,7 @@ class FftStageBuilder:
     iteration_max: int
     b_local_memory: bool = False
 
-    def get_funcs_for_all_stages(self):
+    def get_funcs_for_all_stages(self, radixes: List[int]):
         conf = self
         typedefs = {'data_t': (data_t := conf.data_t),
                     'real_t': (real_t := conf.real_t)}
@@ -38,159 +233,9 @@ class FftStageBuilder:
                    'N_INPUT': conf.size_data_in_first_iteration,  # in_buffer length which might not be power of two
                    'ITERATION_MAX': self.iteration_max,  # in_buffer length which might not be power of two
                    }
-        # ----------------------------------------
-        # Definition of radix 2 - 16 functions:
-        func_fft_radix_2 = Function('fft_radix_2',
-                                    {'v': Private(data_t)},
-                                    """
-                               data_t v0= v[0];
-                               v[0] = v0 + v[1];
-                               v[1] = v0 - v[1];
-                               """)
-        # mul_pxqy(a) returns a*exp(-j * PI * p / q) where p=x and q=y
-        mul_pxpy_dict = {'mul_p1q2': (mul_p1q2 := 'return (data_t)(a.y,-a.x);')}
-        funcs_mulpxpy_4 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict.items()]
-        func_fft_radix_4 = Function('fft_radix_4',
-                                    {'v': Private(data_t)},
-                                    """
-                // 2x DFT2 and twiddle
-                data_t v0 = v[0] + v[2];
-                data_t v1 = v[0] - v[2];
-                data_t v2 = v[1] + v[3];
-                data_t v3 = mul_p1q2(v[1] - v[3]); // twiddle
 
-                // 2x DFT2 and store
-                v[0] = v0 + v2;
-                v[1] = v1 + v3;
-                v[2] = v0 - v2;
-                v[3] = v1 - v3;
-                                    """)
-        funcs_radix_4 = funcs_mulpxpy_4 + [func_fft_radix_4]
-
-        defines['SQRT_1_2'] = np.cos(np.pi / 4)
-        mul_pxpy_dict = {'mul_p0q2': (mul_p0q2 := 'return a;'),
-                         'mul_p0q4': mul_p0q2,
-                         'mul_p2q4': (mul_p2q4 := mul_p1q2),
-                         'mul_p1q4': (mul_p1q4 := 'return (data_t)(SQRT_1_2)*(data_t)(a.x+a.y,-a.x+a.y);'),
-                         'mul_p3q4': (mul_p3q4 := 'return (data_t)(SQRT_1_2)*(data_t)(-a.x+a.y,-a.x-a.y);'),
-                         }
-        funcs_mulpxpy_8 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict.items()]
-        func_fft_radix_8 = Function('fft_radix_8',
-                                    {'v': Private(data_t)},
-                                    """
-                // 4x in-place DFT2
-                data_t u0 = v[0];
-                data_t u1 = v[1];
-                data_t u2 = v[2];
-                data_t u3 = v[3];
-                data_t u4 = v[4];
-                data_t u5 = v[5];
-                data_t u6 = v[6];
-                data_t u7 = v[7];
-
-                data_t v0 = u0 + u4;
-                data_t v4 = mul_p0q4(u0 - u4);
-                data_t v1 = u1 + u5;
-                data_t v5 = mul_p1q4(u1 - u5);
-                data_t v2 = u2 + u6;
-                data_t v6 = mul_p2q4(u2 - u6);
-                data_t v3 = u3 + u7;
-                data_t v7 = mul_p3q4(u3 - u7);
-
-                // 4x in-place DFT2 and twiddle
-                u0 = v0 + v2;
-                u2 = mul_p0q2(v0 - v2);
-                u1 = v1 + v3;
-                u3 = mul_p1q2(v1 - v3);
-                u4 = v4 + v6;
-                u6 = mul_p0q2(v4 - v6);
-                u5 = v5 + v7;
-                u7 = mul_p1q2(v5 - v7);
-
-                // 4x DFT2 and store (reverse binary permutation)
-                v[0]   = u0 + u1;
-                v[1]   = u4 + u5;
-                v[2] = u2 + u3;
-                v[3] = u6 + u7;
-                v[4] = u0 - u1;
-                v[5] = u4 - u5;
-                v[6] = u2 - u3;
-                v[7] = u6 - u7;
-                                    """)
-        funcs_radix_8 = funcs_mulpxpy_8 + [func_fft_radix_8]
-
-        func_mul1 = Function('mul_1',
-                             {'a': Scalar(data_t), 'b': Scalar(data_t)},
-                             'data_t x; x.even = MUL_RE(a,b); x.odd = MUL_IM(a,b); return x;', returns=data_t,
-                             defines={'MUL_RE(a,b)': '(a.even*b.even - a.odd*b.odd)',
-                                      'MUL_IM(a,b)': '(a.even*b.odd + a.odd*b.even)'})
-
-        mul_pxpy_dict = {'mul_p0q8 ': mul_p0q2,
-                         'mul_p1q8': 'return mul_1((data_t)(COS_8,-SIN_8),a);',
-                         'mul_p2q8': mul_p1q4,
-                         'mul_p3q8': 'return mul_1((data_t)(SIN_8,-COS_8),a);',
-                         'mul_p4q8 ': mul_p2q4,
-                         'mul_p5q8': 'return mul_1((data_t)(-SIN_8,-COS_8),a);',
-                         'mul_p6q8': mul_p3q4,
-                         'mul_p7q8': 'return mul_1((data_t)(-COS_8,-SIN_8),a);'}
-        funcs_mulpxpy_16 = [Function(k, {'a': Scalar(data_t)}, v, returns=data_t) for k, v in mul_pxpy_dict.items()]
-        funcs_mulpxpy_16[0].defines = {'COS_8': np.cos(np.pi / 8), 'SIN_8': np.sin(np.pi / 8)}
-        func_fft_radix_16 = Function('fft_radix_16',
-                                     {'v': Private(data_t)},
-                                     """
-                data_t u[16];
-                for (int m=0;m<16;m++) u[m] = v[m];
-                // 8x in-place DFT2 and twiddle (1)
-                DFT2_TWIDDLE(u[0],u[8],mul_p0q8);
-                DFT2_TWIDDLE(u[1],u[9],mul_p1q8);
-                DFT2_TWIDDLE(u[2],u[10],mul_p2q8);
-                DFT2_TWIDDLE(u[3],u[11],mul_p3q8);
-                DFT2_TWIDDLE(u[4],u[12],mul_p4q8);
-                DFT2_TWIDDLE(u[5],u[13],mul_p5q8);
-                DFT2_TWIDDLE(u[6],u[14],mul_p6q8);
-                DFT2_TWIDDLE(u[7],u[15],mul_p7q8);
-
-                // 8x in-place DFT2 and twiddle (2)
-                DFT2_TWIDDLE(u[0],u[4],mul_p0q4);
-                DFT2_TWIDDLE(u[1],u[5],mul_p1q4);
-                DFT2_TWIDDLE(u[2],u[6],mul_p2q4);
-                DFT2_TWIDDLE(u[3],u[7],mul_p3q4);
-                DFT2_TWIDDLE(u[8],u[12],mul_p0q4);
-                DFT2_TWIDDLE(u[9],u[13],mul_p1q4);
-                DFT2_TWIDDLE(u[10],u[14],mul_p2q4);
-                DFT2_TWIDDLE(u[11],u[15],mul_p3q4);
-
-                // 8x in-place DFT2 and twiddle (3)
-                DFT2_TWIDDLE(u[0],u[2],mul_p0q2);
-                DFT2_TWIDDLE(u[1],u[3],mul_p1q2);
-                DFT2_TWIDDLE(u[4],u[6],mul_p0q2);
-                DFT2_TWIDDLE(u[5],u[7],mul_p1q2);
-                DFT2_TWIDDLE(u[8],u[10],mul_p0q2);
-                DFT2_TWIDDLE(u[9],u[11],mul_p1q2);
-                DFT2_TWIDDLE(u[12],u[14],mul_p0q2);
-                DFT2_TWIDDLE(u[13],u[15],mul_p1q2);
-
-                // 8x DFT2 and store (reverse binary permutation)
-                v[0]  = u[0]  + u[1];
-                v[1]  = u[8]  + u[9];
-                v[2]  = u[4]  + u[5];
-                v[3]  = u[12] + u[13];
-                v[4]  = u[2]  + u[3];
-                v[5]  = u[10] + u[11];
-                v[6]  = u[6]  + u[7];
-                v[7]  = u[14] + u[15];
-                v[8]  = u[0]  - u[1];
-                v[9]  = u[8]  - u[9];
-                v[10] = u[4]  - u[5];
-                v[11] = u[12] - u[13];
-                v[12] = u[2]  - u[3];
-                v[13] = u[10] - u[11];
-                v[14] = u[6]  - u[7];
-                v[15] = u[14] - u[15];
-                                    """,
-                                     defines={'DFT2_TWIDDLE(a,b,t)': '{ data_t tmp = t(a-b); a += b; b = tmp; }'})
-        functions_radix_16 = [func_mul1] + funcs_mulpxpy_16 + [func_fft_radix_16]
-        funcs_radix = [func_fft_radix_2] + funcs_radix_4 + funcs_radix_8 + functions_radix_16
+        funcs_radix, defines_radices = get_funcs_radixes(radixes, data_t)
+        defines = {**defines, **defines_radices}
 
         # [1]: The expand() function can be thought of as inserting a dimension of length N2 after the first
         # dimension of length N1 in a linearized index.
@@ -364,7 +409,7 @@ class FftBase:
         else:
             offset_data_in = 'get_global_id(0)*N'
         stage_builder.radix = radix
-        funcs, type_defs, d, shared_mem_fft_stage = stage_builder.get_funcs_for_all_stages()
+        funcs, type_defs, d, shared_mem_fft_stage = stage_builder.get_funcs_for_all_stages([radix])
         funcs.append(stage_builder.get_fft_stage_func())
         d['M'] = (M := data_in.shape[0])  # number of FFTs to perform simultaneously
         knl_gpu_fft = Kernel('gpu_fft',
