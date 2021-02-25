@@ -758,9 +758,9 @@ def unparse_c_code_to_python(code_c: str) -> str:
 
     code_c = MacroWithArguments.replace_with_function(code_c)
 
-    from pyopencl_extension import preamble_activate_double
-    from pyopencl_extension import preamble_activate_complex_numbers
+    from pyopencl_extension.framework import preamble_activate_complex_numbers
     code_c = code_c.replace(preamble_activate_complex_numbers, '')
+    from pyopencl_extension.framework import preamble_activate_double
     code_c = code_c.replace(preamble_activate_double, '')
     code_c = code_c.replace('__const', '')  # todo: create constant array class which raises error when writing to
     # todo: comments can be extracted using line numbers. Nodes in abstract syntax tree provide coords for reinsertion

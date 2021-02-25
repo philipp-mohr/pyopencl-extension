@@ -366,7 +366,7 @@ class Constant(Pointer):
             self.dtype = self.dtype.dtype
 
 
-KnlArgTypes = Union[Array, ScalarArgTypes]
+KernelArgTypes = Union[Array, ScalarArgTypes]
 
 
 def template(func: Union['Kernel', 'Function']) -> str:
@@ -425,7 +425,7 @@ class Function(FunctionBase):
             self.body = [self.body]
 
 
-KnlGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
+KernelGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
 
 
 class Compilable:
@@ -444,8 +444,8 @@ class Kernel(FunctionBase, Compilable):
         return Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file).__getattr__(self.name)
         # return compile_cl_kernel(self, thread, emulate=emulate, file=file)
 
-    global_size: KnlGridType = None
-    local_size: KnlGridType = None
+    global_size: KernelGridType = None
+    local_size: KernelGridType = None
     returns: np.dtype = field(default_factory=lambda: np.dtype(np.void), init=False)
 
     def __post_init__(self):
@@ -541,9 +541,6 @@ def build_for_device(context: cl.Context, template_to_be_compiled: str, file: st
     return program
 
 
-KernelCallReturnType = Union[Array, Tuple[Array, ...], None]
-
-
 # Todo: Find good structure for modeling cl and python kernels
 @dataclass
 class CallableKernel(ABC):
@@ -555,8 +552,8 @@ class CallableKernel(ABC):
         return super().__getattribute__(name)
 
     @abstractmethod
-    def __call__(self, global_size: KnlGridType,
-                 local_size: KnlGridType = None,
+    def __call__(self, global_size: KernelGridType,
+                 local_size: KernelGridType = None,
                  **kwargs):
         pass
 
@@ -641,9 +638,9 @@ class CallableKernelEmulation(CallableKernel):
     function: Callable
 
     def __call__(self,
-                 global_size: KnlGridType = None,
-                 local_size: KnlGridType = None,
-                 **kwargs: Union[Array, object]) -> KernelCallReturnType:
+                 global_size: KernelGridType = None,
+                 local_size: KernelGridType = None,
+                 **kwargs: Union[Array, object]) -> cl.Event:
         # e.g. if two kernels of a program shall run concurrently, this can be enable by passing another queue here
         if 'queue' in kwargs:  # currently queue kwarg is not considered in emulation
             _ = kwargs.pop('queue')
@@ -662,8 +659,8 @@ class CallableKernelDevice(CallableKernel):
     queue: CommandQueueExtended
 
     def __call__(self,
-                 global_size: KnlGridType = None,
-                 local_size: KnlGridType = None,
+                 global_size: KernelGridType = None,
+                 local_size: KernelGridType = None,
                  **kwargs) -> cl.Event:
         # e.g. if two kernels of a program shall run concurrently, this can be enable by passing another queue here
         if 'queue' in kwargs:
@@ -819,8 +816,7 @@ class HashArray(Array):
         self.hash = hash(self.get().tobytes())
 
 
-# todo: rename as Helpers
-class ClHelpers:
+class Helpers:
     # helper methods which can be useful in interplay with this framwork
     @staticmethod
     def _camel_to_snake(name):
@@ -956,4 +952,4 @@ class ClHelpers:
         :return:
         """
         desired_wg_size = 4 * thread.device.global_mem_cacheline_size
-        return ClHelpers._get_local_size_coalesced_last_dim(global_size, desired_wg_size)
+        return Helpers._get_local_size_coalesced_last_dim(global_size, desired_wg_size)

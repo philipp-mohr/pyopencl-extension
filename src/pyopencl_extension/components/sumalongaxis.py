@@ -1,6 +1,6 @@
 from pyopencl.array import Array, empty
 
-from pyopencl_extension import ClHelpers, Program, Kernel, Global, Scalar, \
+from pyopencl_extension import Helpers, Program, Kernel, Global, Scalar, \
     Thread
 from pyopencl_extension import Types
 
@@ -68,7 +68,7 @@ class SumAlongAxis:
                  out_buffer[${addr}] = sum;
                  """],
                      replacements={'size_input_axis': self.in_buffer.shape[self.axis],
-                                   'addr': ClHelpers.command_compute_address(self.out_buffer.ndim),
+                                   'addr': Helpers.command_compute_address(self.out_buffer.ndim),
                                    'addr_in': self._command_compute_address_in()},
                      global_size=self.out_buffer.shape)
         type_defs = {'buff_t': self.in_buffer.dtype}

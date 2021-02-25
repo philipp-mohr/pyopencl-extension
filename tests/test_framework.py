@@ -4,9 +4,10 @@ import time
 import numpy as np
 from pyopencl.array import zeros, Array, to_device
 
-from pyopencl_extension import ClHelpers, Thread, Types, Program, Kernel, Global, \
+from pyopencl_extension import Helpers, Thread, Types, Program, Kernel, Global, \
     Scalar, \
-    Function, Scalar, Global, c_name_from_dtype, HashArray
+    Function, Scalar, Global, HashArray
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype
 
 
 class MyComponentAutomaticArgs:
@@ -183,11 +184,11 @@ logging.basicConfig(level=logging.INFO)
 
 
 def test_local_from_global_dimenstions(thread):
-    local_size = ClHelpers._get_local_size_coalesced_last_dim(global_size=(10000, 128), desired_wg_size=64)
+    local_size = Helpers._get_local_size_coalesced_last_dim(global_size=(10000, 128), desired_wg_size=64)
     assert local_size == (1, 64)
-    local_size = ClHelpers._get_local_size_coalesced_last_dim(global_size=(13, 13), desired_wg_size=64)
+    local_size = Helpers._get_local_size_coalesced_last_dim(global_size=(13, 13), desired_wg_size=64)
     assert local_size == (1, 13)
-    local_size = ClHelpers._get_local_size_coalesced_last_dim(global_size=(10000,), desired_wg_size=64)
+    local_size = Helpers._get_local_size_coalesced_last_dim(global_size=(10000,), desired_wg_size=64)
     assert local_size == (50,)
 
 

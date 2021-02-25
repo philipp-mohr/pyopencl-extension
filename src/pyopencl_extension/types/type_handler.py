@@ -273,7 +273,7 @@ class TypeHandlerVec:
         self._type = eval(f'tp.make_{name}')
 
     def __call__(self, *args):
-        from pyopencl_extension import CArray, CArrayVec
+        from pyopencl_extension.emulation import CArray, CArrayVec
         if isinstance(args[0], CArray) or isinstance(args[0], CArrayVec):
             return args[0].view(self.dtype)
         elif isinstance(args[0], VecVal):

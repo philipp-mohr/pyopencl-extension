@@ -1,4 +1,6 @@
-from pyopencl_extension import Types, to_device, Thread, set_b_use_existing_file_for_emulation, Fft, IFft
+from pyopencl.array import to_device
+from pyopencl_extension import Types, Thread, set_b_use_existing_file_for_emulation, Fft, IFft
+
 
 import time
 from pytest import mark, fixture

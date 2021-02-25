@@ -5,14 +5,16 @@ import numpy as np
 from pyopencl.array import Array, empty, zeros, to_device
 from pytest import mark
 
-from pyopencl_extension import Thread, ClHelpers, Kernel, Program, \
-    c_name_from_dtype, Global, Scalar, Types
+from pyopencl_extension import Thread, Helpers, Kernel, Program, \
+    Global, Scalar, Types
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
 __version__ = "1.0"
 __email__ = "piveloper@gmail.com"
 __doc__ = """This script implements the functionality to copy certain region_in of cl array on device."""
+
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype
 
 TypeSliceFormatCopyArrayRegion = Tuple[Tuple[int, Union[int, None], Union[int, None], int], ...]
 
@@ -247,7 +249,7 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
    }
    target[id_target] = ${source};
                    """,
-                 replacements={'addr': ClHelpers.command_compute_address(array.ndim),
+                 replacements={'addr': Helpers.command_compute_address(array.ndim),
                                  'source': code_source},
                  global_size=(global_size,)
                  ).compile(Thread.from_buffer(array), emulate=False)
@@ -305,8 +307,8 @@ class TypeConverter:
                                    int addr_out = ${command_addr_out};
                                    out_buffer[addr_out]=convert_${buff_out_t}(in_buffer[addr_in]);
                                    """],
-                     replacements={'command_addr_in': ClHelpers.command_compute_address(self.in_buffer.ndim),
-                                     'command_addr_out': ClHelpers.command_compute_address(self.out_buffer.ndim),
+                     replacements={'command_addr_in': Helpers.command_compute_address(self.in_buffer.ndim),
+                                     'command_addr_out': Helpers.command_compute_address(self.out_buffer.ndim),
                                      'buff_out_t': c_name_from_dtype(self.out_buffer.dtype)},
                      global_size=self.in_buffer.shape)
         thread = Thread(queue=in_buffer.queue, context=in_buffer.context)
