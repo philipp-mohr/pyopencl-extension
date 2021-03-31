@@ -10,6 +10,7 @@ import pyastyle
 from mako import exceptions
 from mako.template import Template
 import pyopencl as cl
+from pyopencl._cl import Device
 from pyopencl.array import Array, to_device
 
 from pyopencl_extension.helpers.general import write_string_to_file
@@ -658,6 +659,14 @@ class CallableKernelDevice(CallableKernel):
     compiled: cl.Kernel
     queue: CommandQueueExtended
 
+    @staticmethod
+    def check_local_size_not_exceeding_device_limits(device: Device, local_size):
+        # E.g. on nvidia the local size might be individually limited to be (1024,1024,64).
+        # This shall trigger an exception, when wrong local size is provided.
+        if local_size is not None and any([desired_local_size > device.max_work_item_sizes[dim]
+                                           for dim, desired_local_size in enumerate(local_size)]):
+            raise ValueError(f'Requested local dimensions {local_size} exceed {device.max_work_item_sizes=}')
+
     def __call__(self,
                  global_size: KernelGridType = None,
                  local_size: KernelGridType = None,
@@ -669,6 +678,7 @@ class CallableKernelDevice(CallableKernel):
             queue = self.queue
         global_size, local_size, args = self._prepare_arguments(self.kernel_model, global_size=global_size,
                                                                 local_size=local_size, **kwargs)
+        self.check_local_size_not_exceeding_device_limits(queue.device, local_size)
         # extract buffer from cl arrays separate, since in emulation we need cl arrays
         args_cl = [arg.data if isinstance(arg, Array) else arg for i, arg in enumerate(args)]
         event = self.compiled(queue, global_size, local_size, *args_cl)
