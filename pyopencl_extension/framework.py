@@ -162,6 +162,32 @@ class Profiling:
         ax.set_title(f'Sum execution time {self.get_sum_execution_time()}')
         plt.show()
 
+def get_context(device):
+    """
+    On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
+
+    This function facilitates to get a context and queue pointing to a particular device.
+
+    The first parameter device[0] selects the platform, like Intel or AMD.
+
+    The second parameter selects a particular device of that platform, e.g. if multiple AMD Graphiccards ar installed.
+
+    :param device: e.g. deice= (0,1). 0 refers to the platform, and 1 to the device index on that platform.
+    :return: the context instance
+    """
+    if device[0] == 'some_context':
+        context = cl.create_some_context()
+    else:
+        platform = cl.get_platforms()
+        try:
+            my_gpu_devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]]
+        except:
+            try:
+                my_gpu_devices = platform[device[0]].get_devices()
+            except:
+                raise ValueError('No matching device found')
+        context = cl.Context(devices=my_gpu_devices)
+    return context
 
 @dataclass
 class Thread:
@@ -182,7 +208,12 @@ class Thread:
 
     def __post_init__(self):
         if self.context is None:
-            self.context = cl.create_some_context()
+            try:
+                # add environmental variable PYOPENCL_DEVICE with 0,0 to select vendor 0 device 0 as default device
+                device = tuple([int(part) for part in os.environ["PYOPENCL_DEVICE"].split(',')])
+                self.context = get_context(device)  # fallback = cl.create_some_context()
+            except KeyError as err:
+                self.context = cl.create_some_context()
         if self.queue is None:
             if self.profile:
                 self.queue = CommandQueueExtended(self.context, properties=QueueProperties.PROFILING_ENABLE)
@@ -203,29 +234,9 @@ def get_device(device: Tuple[int, int]) -> cl.Device:
 
 def get_thread(device: Tuple[int, int], profile=False) -> Thread:
     """
-    On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
-
-    This function facilitates to get a context and queue pointing to a particular device.
-
-    The first parameter device[0] selects the platform, like Intel or AMD.
-
-    The second parameter selects a particular device of that platform, e.g. if multiple AMD Graphiccards ar installed.
-
-    :param device: e.g. deice= (0,1). 0 refers to the platform, and 1 to the device index on that platform.
     :return: A container class with context and queue pointing to selected device.
     """
-    if device[0] == 'some_context':
-        context = cl.create_some_context()
-    else:
-        platform = cl.get_platforms()
-        try:
-            my_gpu_devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]]
-        except:
-            try:
-                my_gpu_devices = platform[device[0]].get_devices()
-            except:
-                raise ValueError('No matching device found')
-        context = cl.Context(devices=my_gpu_devices)
+    context = get_context(device)
     return Thread(context, profile=profile)
 
 

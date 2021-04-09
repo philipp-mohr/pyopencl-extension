@@ -19,7 +19,7 @@ URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
 REQUIRES_PYTHON = '>=3.8.0'
-VERSION = '0.0.28'
+VERSION = '0.0.29'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
@@ -32,7 +32,8 @@ EXTRAS = {
         'pytest',
         'check-manifest',
         'twine',
-        'reikna'
+        'reikna',
+        'wheel'
     ]  # 'fancy feature': ['django'],
 }
 
@@ -154,7 +155,6 @@ setup(
         # Full list: https://pypi.python.org/pypi?%3Aaction=list_classifiers
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy'
