@@ -461,6 +461,9 @@ def test_different_c_operations_at_once(thread):
     assert np.allclose(ary.get(), np.array([1, 2]).astype(ary.dtype))
 
 
+# https://community.khronos.org/t/allocate-array-in-a-kernel-of-length-known-only-at-runtime/3655/3
+# http://developer.amd.com/wordpress/media/2013/12/AMD_OpenCL_Programming_User_Guide2.pdf
+# http://developer.amd.com/wordpress/media/2013/01/Introduction_to_OpenCL_Programming-Training_Guide-201005.pdf
 @mark.parametrize(argnames='data_t', argvalues=[Types.short, Types.double])
 def test_local_memory_as_kernel_argument(thread, data_t):
     def run(emulate=False):
@@ -487,6 +490,7 @@ def test_local_memory_as_kernel_argument(thread, data_t):
     ary_py = run(emulate=True)
     assert np.allclose(ary_cl, ary_py) and np.allclose(ary_cl, 5 * np.ones(10).astype(ary_py.dtype))
 
+
 # constants in global scope cannot be set from host.
 # https://stackoverflow.com/questions/7140820/opencl-initializing-program-scope-variables-from-the-host
 # def test_program_scope_variable(thread):
@@ -495,3 +499,15 @@ def test_local_memory_as_kernel_argument(thread, data_t):
 
 def test_barrier_global_local_mem_fence():
     pass
+
+
+@mark.parametrize(['name', 'dtype'], [('abs_diff', Types.int)])
+def test_two_input_integer_functions(thread, name, dtype):
+    a_cl = to_device(thread.queue, np.ones((10,), dtype))
+    a_emulation = to_device(thread.queue, np.ones((10,), dtype))
+    knl = Kernel(f'knl_{name}',
+                 {'a': Global(a_cl), 'num': Scalar(dtype(0))},
+                 f'a[get_global_id(0)]={name}(a[get_global_id(0)], num);', global_size=a_cl.shape)
+    knl.compile(thread)(a=a_cl)
+    knl.compile(thread, emulate=True)(a=a_emulation)
+    assert np.all(a_cl.get() == a_emulation.get())

@@ -111,6 +111,10 @@ def dtype_to_c_name(dtype):
     return np_to_c_type_name_catch(dict(dtype.fields)['s0'][0].name) + str(len(dtype.names))
 
 
+def get_unsigned_dtype(dtype):
+    return dtype_from_c_name('u' + c_name_from_dtype(dtype))
+
+
 def scalar_type_from_vec_type(dtype: np.dtype) -> np.dtype:
     if number_vec_elements_of_cl_type(dtype) == 1:
         return dtype

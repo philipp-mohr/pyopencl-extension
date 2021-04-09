@@ -255,9 +255,12 @@ def _unparse(node: Node) -> Container:
             elif func_name in translation_cl_work_item_functions:
                 res = 'wi.{}[{}]'.format(translation_cl_work_item_functions[func_name], _unparse(node.args))
             elif 'barrier' == func_name:
-                a = 1
+                if isinstance((_ := node.args.exprs[0]), BinaryOp):
+                    barrier_name = f'{node.args.exprs[0].left.name}|{node.args.exprs[0].right.name}'
+                else:
+                    barrier_name = node.args.exprs[0].name
                 res = f'\nwi.scope = locals()  # saves reference to objects in scope for debugging other wi in wg \n' \
-                      f'yield  # yield models the behaviour of barrier({node.args.exprs[0].name})\n'
+                      f'yield  # yield models the behaviour of barrier({barrier_name})\n'
             else:
                 if func_name in (_ := MacroWithArguments.names_py_macro):
                     args = _unparse(node.args).split(', ')
@@ -739,7 +742,7 @@ def search_for_barrier(code_c, ast):
     funcs_with_barrier = [_ for _ in funcs if
                           any(_['start_line'] < line < _['end_line'] for line in lines_with_barrier)]
     funcs_nested_barrier = [_ for _ in funcs if any(re.search(r'(\W)(' + func['name'] + r')(\W)',
-                                                              ''.join(code_c[_['start_line']:_['end_line']]))
+                                                              ''.join(code_c[_['start_line']:_['end_line']-1]))
                                                     for func in funcs_with_barrier)]
 
     return [_['name'] for _ in funcs_with_barrier + funcs_nested_barrier if not _['is_kernel']]

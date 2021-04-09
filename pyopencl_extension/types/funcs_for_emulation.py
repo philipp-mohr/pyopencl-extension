@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 import math as math
 
-from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, Types, is_vector_type
+from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, Types, is_vector_type, get_unsigned_dtype
 from pyopencl_extension.types.auto_gen.types_for_emulation import *
 import logging
 
@@ -126,6 +126,14 @@ def add_sat(x, y):
         return x.dtype.type(np.iinfo(x.dtype).min)
     else:
         return res
+
+
+def abs(x):
+    return get_unsigned_dtype(x.dtype.type)(np.abs(x))
+
+
+def abs_diff(x, y):
+    return get_unsigned_dtype(x.dtype.type)(np.abs(x - y))
 
 
 def set_real(ary, idx, value):
