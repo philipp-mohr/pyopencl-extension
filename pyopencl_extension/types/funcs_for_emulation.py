@@ -152,3 +152,11 @@ def c_modulo(dividend, divisor):
         return int(math.fmod(dividend, divisor))
     else:
         raise NotImplementedError(f'modulo division not implemented for divendend of type {type(dividend)}')
+
+
+def max(x, y):
+    return np.max(x, y)
+
+
+def fmax(x, y):
+    return np.fmax(x, y)

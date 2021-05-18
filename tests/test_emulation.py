@@ -5,7 +5,7 @@ from pyopencl import Program as pyopencl_program
 from pyopencl.array import zeros, zeros_like, to_device
 from pytest import mark
 
-from pyopencl_extension import emulation, set_b_use_existing_file_for_emulation, Local, Scalar, \
+from pyopencl_extension import emulation, use_existing_file_for_emulation, Local, Scalar, \
     LocalArray, Types, Kernel, Global, Function, Program, Private
 from pyopencl_extension.emulation import unparse_c_code_to_python, create_py_file_and_load_module
 
@@ -268,7 +268,7 @@ def test_pointer_arithmetics(thread):
     """,
                  global_size=data.shape)
     knl_cl = knl.compile(thread)
-    emulation.set_b_use_existing_file_for_emulation(False)
+    emulation.use_existing_file_for_emulation(False)
     knl_py = knl.compile(thread, emulate=True)
     knl_cl()
     res_cl = knl_cl.data.get()
@@ -399,7 +399,7 @@ def test_nested_local_barrier_inside_function(thread):
                            returns=Types.int)
 
     ary = to_device(thread.queue, (ary_np := np.array([1, 2]).astype(Types.int)))
-    set_b_use_existing_file_for_emulation(False)
+    use_existing_file_for_emulation(False)
     knl = Kernel('some_knl',
                  {
                      'ary': Global(ary),
@@ -501,7 +501,10 @@ def test_barrier_global_local_mem_fence():
     pass
 
 
-@mark.parametrize(['name', 'dtype'], [('abs_diff', Types.int)])
+@mark.parametrize(['name', 'dtype'], [('fmax', Types.float),
+                                      ('abs_diff', Types.int),
+                                      ('max', Types.int),
+                                      ])
 def test_two_input_integer_functions(thread, name, dtype):
     a_cl = to_device(thread.queue, np.ones((10,), dtype))
     a_emulation = to_device(thread.queue, np.ones((10,), dtype))

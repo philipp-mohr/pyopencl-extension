@@ -1,7 +1,7 @@
 import numpy as np
 from pyopencl.array import to_device
 
-from pyopencl_extension.components.sumalongaxis import SumAlongAxis
+from pyopencl_extension import SumAlongAxis
 
 
 def test_sum_along_axis(thread):

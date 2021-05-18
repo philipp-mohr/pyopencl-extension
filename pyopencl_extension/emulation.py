@@ -820,7 +820,7 @@ import numpy as np
 b_use_existing_file_for_emulation = False
 
 
-def set_b_use_existing_file_for_emulation(value: bool):
+def use_existing_file_for_emulation(value: bool):
     # hack solution for making changes in generated python cl program directly. When rerunning, those changes are not
     # overridden
     global b_use_existing_file_for_emulation

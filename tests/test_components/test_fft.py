@@ -1,11 +1,11 @@
 from pyopencl.array import to_device
-from pyopencl_extension import Types, Thread, set_b_use_existing_file_for_emulation, Fft, IFft
+
+from pyopencl_extension import Types, Thread, use_existing_file_for_emulation, Fft, IFft
 
 
 import time
 from pytest import mark, fixture
 import numpy as np
-
 
 
 def get_in_data_cplx(M, N, dtype=Types.cdouble):
@@ -74,7 +74,7 @@ def test_fft(in_data_np):
 
     if in_data_np.size < 1024:
         # Test against emulation (commented since it is slower)
-        set_b_use_existing_file_for_emulation(False)
+        use_existing_file_for_emulation(False)
         fft_cl_py = Fft(in_data_cl, emulate=True)
 
         fft_in_data_cl_py = fft_cl_py()

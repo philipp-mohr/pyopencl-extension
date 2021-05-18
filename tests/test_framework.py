@@ -4,10 +4,8 @@ import time
 import numpy as np
 from pyopencl.array import zeros, Array, to_device
 
-from pyopencl_extension import Helpers, Thread, Types, Program, Kernel, Global, \
-    Scalar, \
-    Function, Scalar, Global, HashArray
-from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype
+from pyopencl_extension import Helpers, Thread, Program, Kernel, Function, Scalar, Global, HashArray
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, Types
 
 
 class MyComponentAutomaticArgs:
