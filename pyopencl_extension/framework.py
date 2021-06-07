@@ -162,6 +162,7 @@ class Profiling:
         ax.set_title(f'Sum execution time {self.get_sum_execution_time()}')
         plt.show()
 
+
 def get_context(device):
     """
     On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
@@ -188,6 +189,7 @@ def get_context(device):
                 raise ValueError('No matching device found')
         context = cl.Context(devices=my_gpu_devices)
     return context
+
 
 @dataclass
 class Thread:
@@ -453,12 +455,14 @@ class Compilable:
 @dataclass
 class Kernel(FunctionBase, Compilable):
     def compile(self, thread, emulate: bool = False, file='$default_path'):
-        return Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file).__getattr__(self.name)
+        Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file)
+        return self.compiled_program.__getattr__(self.name)
         # return compile_cl_kernel(self, thread, emulate=emulate, file=file)
 
     global_size: KernelGridType = None
     local_size: KernelGridType = None
     returns: np.dtype = field(default_factory=lambda: np.dtype(np.void), init=False)
+    callable_kernel: 'CallableKernel' = field(default_factory=lambda: None, init=False)
 
     def __post_init__(self):
         if isinstance(self.body, str):
@@ -471,6 +475,12 @@ class Kernel(FunctionBase, Compilable):
     @property
     def header(self):
         return '__kernel ${returns} ${name}(${args})'
+
+    def __call__(self, global_size: KernelGridType = None, local_size: KernelGridType = None, **kwargs):
+        if self.callable_kernel is not None:
+            return self.callable_kernel(global_size=global_size, local_size=local_size, **kwargs)
+        else:
+            raise ValueError('Kernel has not been compiled yet.')
 
 
 @dataclass
@@ -564,7 +574,7 @@ class CallableKernel(ABC):
         return super().__getattribute__(name)
 
     @abstractmethod
-    def __call__(self, global_size: KernelGridType,
+    def __call__(self, global_size: KernelGridType = None,
                  local_size: KernelGridType = None,
                  **kwargs):
         pass
@@ -800,7 +810,9 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
         callable_kernels = {k: CallableKernelDevice(kernel_model=dict_kernels_program_model[k], compiled=v,
                                                     queue=thread.queue)
                             for k, v in dict_device_kernel_functions.items()}
-
+    # make callable kernel available in knl model instance
+    for knl in program_model.kernels:
+        knl.callable_kernel = callable_kernels[knl.name]
     return ProgramContainer(program_model=program_model,
                             file=file,
                             init=thread,

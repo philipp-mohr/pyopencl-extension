@@ -79,10 +79,14 @@ def test_manual_kernel_arguments_no_super_call(thread):
 
 class MyComponentComplexExample:
     def __call__(self, *args, **kwargs):
-        self.program.some_operation()
+        if self.mode == 'a':
+            self.program.some_operation(number=1)
+        elif self.mode == 'b':
+            self.knl(number=1)
         return self.buff
 
-    def __init__(self, thread: Thread, b_create_kernel_file: bool = True):
+    def __init__(self, thread: Thread, mode='a',b_create_kernel_file: bool = True):
+        self.mode = mode
         self.buff = zeros(thread.queue, (10,), Types.short)
         self.data_t = self.buff.dtype
         func = Function('plus_one',
@@ -106,11 +110,14 @@ class MyComponentComplexExample:
         type_defs = {'data_t': self.data_t}
         self.program = Program(defines=defines, type_defs=type_defs, functions=[func],
                                kernels=[knl]).compile(thread)
+        self.knl = knl
 
 
 def test_complex_example(thread):
     component = MyComponentComplexExample(thread)
+    component_b = MyComponentComplexExample(thread, mode='b')
     res = component().get()
+    res_b = component_b().get()
 
     assert np.all(res == 11)
 
