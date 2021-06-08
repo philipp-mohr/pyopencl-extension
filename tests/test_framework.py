@@ -2,9 +2,10 @@ import logging
 import time
 
 import numpy as np
-from pyopencl.array import zeros, Array, to_device
+import pytest
 
-from pyopencl_extension import Helpers, Thread, Program, Kernel, Function, Scalar, Global, HashArray
+from pyopencl_extension import Helpers, Thread, Program, Kernel, Function, Scalar, Global, HashArray, Array, zeros, \
+    to_device, empty, empty_like
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, Types
 
 
@@ -85,7 +86,7 @@ class MyComponentComplexExample:
             self.knl(number=1)
         return self.buff
 
-    def __init__(self, thread: Thread, mode='a',b_create_kernel_file: bool = True):
+    def __init__(self, thread: Thread, mode='a', b_create_kernel_file: bool = True):
         self.mode = mode
         self.buff = zeros(thread.queue, (10,), Types.short)
         self.data_t = self.buff.dtype
@@ -156,7 +157,7 @@ def test_memoize_kernel(thread):
         if i == 1:
             t = time.time()
     time_per_recompile = (time.time() - t) / n_recompilations
-    assert time_per_recompile < 0.004  # less than 4 ms overhead per recompilation
+    assert time_per_recompile < 0.01  # less than 10 ms overhead per recompilation
 
 
 def test_get_refreshed_argument_of_memoized_kernel(thread):
@@ -225,6 +226,7 @@ def test_hash_array(thread):
     c_hash = hash_ary.hash
     assert c_hash != b_hash
 
+
 # to much work to make overloading functionality working from outside of C compiler, because that requires tracking
 # types of variables. If complex support is required just make second implementation.
 # def test_real_complex_support():
@@ -238,3 +240,14 @@ def test_hash_array(thread):
 #              int i = get_global_id(0);
 #              a[i] = (a[i]+3) *b[i];
 #              """).compile()
+
+@pytest.mark.skip()
+def test_profiling():
+    thread = Thread(profile=True)
+    queue = thread.queue
+    ary = zeros(queue, (int(1e8),), dtype=Types.int)
+    ary.set(np.zeros((int(1e8),), dtype=Types.int))
+    ary = empty(queue, (int(1e8),), dtype=Types.int)
+    ary = empty_like(ary)
+    queue.finish()
+    queue.get_profiler().show_histogram_cumulative_kernel_times()

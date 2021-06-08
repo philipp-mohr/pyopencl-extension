@@ -11,12 +11,16 @@ from mako import exceptions
 from mako.template import Template
 import pyopencl as cl
 from pyopencl._cl import Device
-from pyopencl.array import Array, to_device
+from pyopencl.array import Array as ClArray
 
+from pyopencl_extension import CommandQueue, Array, to_device
 from pyopencl_extension.helpers.general import write_string_to_file
+from pyopencl_extension.modifications_pyopencl.array import QueueProperties
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
     get_vec_size, Types, number_vec_elements_of_cl_type, VEC_INDICES
 from pyopencl_extension.emulation import create_py_file_and_load_module, unparse_c_code_to_python
+
+arrays_cls = (Array, ClArray)
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -106,62 +110,6 @@ def preamble_generic_type_operations(number_format: str = 'real', precision: str
         raise NotImplementedError()
 
 
-@dataclass
-class QueueProperties:
-    DEFAULT: int = 0
-    ON_DEVICE: int = 4
-    ON_DEVICE_DEFAULT: int = 8
-    OUT_OF_ORDER_EXEC_MODE_ENABLE: int = 1
-    PROFILING_ENABLE: int = 2
-
-
-class CommandQueueExtended(cl.CommandQueue):
-    def __init__(self, context, device=None, properties=0):
-        super().__init__(context, device, properties)
-        self.events = []
-
-    def get_profiler(self) -> 'Profiling':
-        return Profiling(self)
-
-
-class Profiling:
-    def __init__(self, queue: CommandQueueExtended):
-        if queue.properties == cl.command_queue_properties.PROFILING_ENABLE:
-            self.queue = queue
-            self.events = queue.events
-        else:
-            raise ValueError('Profiling must be enabled using command_queue_properties.PROFILING_ENABLE')
-
-    def get_knl_names_time_ms(self):
-        return [(event[0], 1e-6 * ((_ := event[1]).profile.end - _.profile.start)) for event in self.events]
-
-    def list_cumulative_knl_times_ms(self):
-        knl_names = {_[0]: 0.0 for _ in self.get_knl_names_time_ms()}
-        for _ in self.get_knl_names_time_ms():
-            knl_names[_[0]] += _[1]
-        indices = np.argsort([knl_names[_] for _ in knl_names])
-        return [list(knl_names.items())[i] for i in np.flip(indices)]
-
-    def get_sum_execution_time(self):
-        return sum([_[1] for _ in self.list_cumulative_knl_times_ms()])
-
-    def show_histogram_cumulative_kernel_times(self):
-        import matplotlib.pyplot as plt
-        import numpy as np
-        fig, ax = plt.subplots()
-        fig.subplots_adjust(left=0.4)
-        # Example data
-        knl_names = [_[0] for _ in self.list_cumulative_knl_times_ms()]
-        knl_times = [_[1] for _ in self.list_cumulative_knl_times_ms()]
-        y_pos = np.arange(len(knl_names))
-        ax.barh(y_pos, knl_times, align='center')
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(knl_names)
-        ax.invert_yaxis()  # labels read top-to-bottom
-        ax.set_xlabel('Time ms')
-        ax.set_title(f'Sum execution time {self.get_sum_execution_time()}')
-        plt.show()
-
 
 def get_context(device):
     """
@@ -194,7 +142,7 @@ def get_context(device):
 @dataclass
 class Thread:
     context: cl.Context = None
-    queue: CommandQueueExtended = None
+    queue: CommandQueue = None
     b_compiler_output: bool = True
     # https://stackoverflow.com/questions/29068229/is-there-a-way-to-profile-an-opencl-or-a-pyopencl-program
     profile: bool = False
@@ -218,9 +166,9 @@ class Thread:
                 self.context = cl.create_some_context()
         if self.queue is None:
             if self.profile:
-                self.queue = CommandQueueExtended(self.context, properties=QueueProperties.PROFILING_ENABLE)
+                self.queue = CommandQueue(self.context, properties=QueueProperties.PROFILING_ENABLE)
             else:
-                self.queue = CommandQueueExtended(self.context, properties=self.queue_properties)
+                self.queue = CommandQueue(self.context, properties=self.queue_properties)
         self.queue.finish()
         if self.b_compiler_output:
             os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
@@ -351,7 +299,7 @@ class Global(Pointer):
     default: Array = field(init=False, default='')
 
     def __post_init__(self):
-        if isinstance(self.dtype, Array):
+        if isinstance(self.dtype, arrays_cls):
             self.default = self.dtype
             self.dtype = self.dtype.dtype
 
@@ -375,7 +323,7 @@ class Constant(Pointer):
     default: Array = field(init=False, default='')
 
     def __post_init__(self):
-        if isinstance(self.dtype, Array):
+        if isinstance(self.dtype, arrays_cls):
             self.default = self.dtype
             self.dtype = self.dtype.dtype
 
@@ -456,7 +404,7 @@ class Compilable:
 class Kernel(FunctionBase, Compilable):
     def compile(self, thread, emulate: bool = False, file='$default_path'):
         Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file)
-        return self.compiled_program.__getattr__(self.name)
+        return self.callable_kernel
         # return compile_cl_kernel(self, thread, emulate=emulate, file=file)
 
     global_size: KernelGridType = None
@@ -670,7 +618,7 @@ class CallableKernelEmulation(CallableKernel):
                                                                 local_size=local_size, **kwargs)
         self.function(global_size, local_size, *args)
         # create user event with context retrieved from first arg of type Array
-        event = cl.UserEvent([_ for _ in args if isinstance(_, Array)][0].context)
+        event = cl.UserEvent([_ for _ in args if isinstance(_, arrays_cls)][0].context)
         event.set_status(cl.command_execution_status.COMPLETE)
         return event
 
@@ -678,7 +626,7 @@ class CallableKernelEmulation(CallableKernel):
 @dataclass
 class CallableKernelDevice(CallableKernel):
     compiled: cl.Kernel
-    queue: CommandQueueExtended
+    queue: CommandQueue
 
     @staticmethod
     def check_local_size_not_exceeding_device_limits(device: Device, local_size):
@@ -701,14 +649,9 @@ class CallableKernelDevice(CallableKernel):
                                                                 local_size=local_size, **kwargs)
         self.check_local_size_not_exceeding_device_limits(queue.device, local_size)
         # extract buffer from cl arrays separate, since in emulation we need cl arrays
-        args_cl = [arg.data if isinstance(arg, Array) else arg for i, arg in enumerate(args)]
+        args_cl = [arg.data if isinstance(arg, arrays_cls) else arg for i, arg in enumerate(args)]
         event = self.compiled(queue, global_size, local_size, *args_cl)
-
-        if queue.properties == cl.command_queue_properties.PROFILING_ENABLE:
-            if len(queue.events) < int(1e6):
-                queue.events.append((self.kernel_model.name, event))
-            else:
-                raise ValueError('Forgot to disable profiling?')
+        queue.add_event(event, self.kernel_model.name)
         return event
 
 
@@ -828,7 +771,7 @@ def int_safe(val: float):
 
 class HashArray(Array):
     def __init__(self, *args, **kwargs):
-        if isinstance(args[0], Array):
+        if isinstance(args[0], arrays_cls):
             a = args[0]
             super().__init__(a.queue, a.shape, a.dtype, order="C", allocator=a.allocator,
                              data=a.data, offset=a.offset, strides=a.strides, events=a.events)

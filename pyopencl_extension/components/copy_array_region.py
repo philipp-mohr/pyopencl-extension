@@ -2,10 +2,9 @@ from copy import copy
 from typing import Tuple, Union
 
 import numpy as np
-from pyopencl.array import Array, empty, zeros, to_device
 from pytest import mark
 
-from pyopencl_extension import Thread, Helpers, Kernel, Program, Global, Scalar, Types
+from pyopencl_extension import Thread, Helpers, Kernel, Program, Global, Scalar, Types, Array, empty, zeros, to_device
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"

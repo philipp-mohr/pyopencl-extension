@@ -1,8 +1,6 @@
 import numpy as np
-from pyopencl.array import to_device
 
-from pyopencl_extension import Transpose
-from pyopencl_extension import Types
+from pyopencl_extension import Transpose, to_device, Types
 
 
 def test_transpose_single_dimension(thread):

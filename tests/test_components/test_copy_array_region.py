@@ -1,15 +1,11 @@
 import numpy as np
-import pyopencl as cl
-import pyopencl.array as cl_array
-from pyopencl_extension import Types
 
-from pyopencl_extension.components.copy_array_region import CopyArrayRegion, Slice
-from pyopencl_extension.components.transpose import Transpose
+from pyopencl_extension import CopyArrayRegion, Slice, to_device
 
 
 def test_copy_array_region_on_device(thread):
     ary_np = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.complex64)
-    in_cl = cl.array.to_device(thread.queue, ary_np)
+    in_cl = to_device(thread.queue, ary_np)
     copy_region = CopyArrayRegion(in_cl, region_in=Slice[0:1, 1:3])
 
     out = copy_region()
@@ -21,7 +17,7 @@ def test_copy_array_region_on_device(thread):
 
 def test_copy_array_region_on_device_region_none(thread):
     ary_np = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.complex64)
-    in_cl = cl.array.to_device(thread.queue, ary_np)
+    in_cl = to_device(thread.queue, ary_np)
     copy_region = CopyArrayRegion(in_cl, region_in=None)
 
     out = copy_region()
@@ -33,9 +29,9 @@ def test_copy_array_region_on_device_region_none(thread):
 
 def test_copy_array_region_on_device_between_buffers(thread):
     ary_np = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.complex64)
-    in_cl = cl.array.to_device(thread.queue, ary_np)
+    in_cl = to_device(thread.queue, ary_np)
     out_np = np.zeros(shape=(4, 4), dtype=in_cl)
-    out_cl = cl.array.to_device(thread.queue, out_np)
+    out_cl = to_device(thread.queue, out_np)
     copy_region = CopyArrayRegion(in_buffer=in_cl,
                                   region_in=Slice[:1, 1:3],
                                   out_buffer=out_cl,
@@ -47,7 +43,7 @@ def test_copy_array_region_on_device_between_buffers(thread):
 
 def test_copy_array_region_on_device_negative_indexing(thread):
     ary_np = np.ones(shape=(5, 10), dtype=np.int32)
-    in_cl = cl.array.to_device(thread.queue, ary_np)
+    in_cl = to_device(thread.queue, ary_np)
     copy_region = CopyArrayRegion(in_buffer=in_cl,
                                   region_in=Slice[:, 2:-1])
     out = copy_region()
@@ -57,7 +53,7 @@ def test_copy_array_region_on_device_negative_indexing(thread):
 
 def test_copy_array_region_on_device_given_axis_index(thread):
     ary_np = np.ones(shape=(5, 10), dtype=np.int32)
-    in_cl = cl.array.to_device(thread.queue, ary_np)
+    in_cl = to_device(thread.queue, ary_np)
     copy_region = CopyArrayRegion(in_buffer=in_cl,
                                   region_in=Slice[2:-1, :])
     out = copy_region()

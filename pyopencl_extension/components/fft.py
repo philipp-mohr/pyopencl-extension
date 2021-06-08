@@ -8,10 +8,9 @@ from dataclasses import dataclass
 from typing import List
 
 import numpy as np
-from pyopencl.array import zeros_like, Array, zeros
 
 from pyopencl_extension import Function, Kernel, Types, Scalar, \
-    Global, Program, Thread, Private, Local
+    Global, Program, Thread, Private, Local, zeros_like, Array, zeros
 
 
 # Definition of radix 2 - 16 functions:

@@ -2,11 +2,10 @@ from pathlib import Path
 
 import numpy as np
 from pyopencl import Program as pyopencl_program
-from pyopencl.array import zeros, zeros_like, to_device
 from pytest import mark
 
 from pyopencl_extension import emulation, use_existing_file_for_emulation, Local, Scalar, \
-    LocalArray, Types, Kernel, Global, Function, Program, Private
+    LocalArray, Types, Kernel, Global, Function, Program, Private, zeros, zeros_like, to_device
 from pyopencl_extension.emulation import unparse_c_code_to_python, create_py_file_and_load_module
 
 path_py_cl = Path(__file__).parent.joinpath('py_cl_kernels')

@@ -1,7 +1,4 @@
-from pyopencl.array import Array, empty
-
-from pyopencl_extension import Helpers, Program, Kernel, Global, Scalar, \
-    Thread
+from pyopencl_extension import Helpers, Program, Kernel, Global, Scalar, Thread, Array, empty
 from pyopencl_extension import Types
 
 __author__ = "piveloper"

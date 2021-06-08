@@ -1,6 +1,4 @@
-from pyopencl.array import to_device
-
-from pyopencl_extension import Types, Thread, use_existing_file_for_emulation, Fft, IFft
+from pyopencl_extension import Types, Thread, use_existing_file_for_emulation, Fft, IFft, to_device
 
 
 import time

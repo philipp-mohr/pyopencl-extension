@@ -1,5 +1,7 @@
+from .modifications_pyopencl.array import zeros, zeros_like, empty, Array, empty_like, to_device,\
+    Profiling, CommandQueue
 from .emulation import use_existing_file_for_emulation
-from .framework import (Thread, Profiling, CommandQueueExtended, Private, Scalar, Local, Global, Constant, Function,
+from .framework import (Thread, Private, Scalar, Local, Global, Constant, Function,
                         Kernel,
                         Program, get_thread, get_device, get_vec_size, LocalArray, HashArray, Helpers, Types,
                         scalar_type_from_vec_type, KernelGridType, KernelArgTypes, int_safe)
