@@ -1,5 +1,5 @@
-from .modifications_pyopencl.array import zeros, zeros_like, empty, Array, empty_like, to_device,\
-    Profiling, CommandQueue
+from .modifications_pyopencl.command_queue import Profiling, CommandQueue
+from .modifications_pyopencl.array import zeros, zeros_like, empty, Array, empty_like, to_device
 from .emulation import use_existing_file_for_emulation
 from .framework import (Thread, Private, Scalar, Local, Global, Constant, Function,
                         Kernel,

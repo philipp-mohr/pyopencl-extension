@@ -35,8 +35,7 @@ One very simple example is given below.
 
 .. code-block:: python
 
-    from pyopencl.array import zeros
-    from pyopencl_extension import Kernel, Global, Scalar, Thread, Types
+    from pyopencl_extension import Kernel, Global, Scalar, Thread, Types, zeros
     import numpy as np
 
     thread = Thread()

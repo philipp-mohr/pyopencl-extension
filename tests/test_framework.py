@@ -243,11 +243,16 @@ def test_hash_array(thread):
 
 @pytest.mark.skip()
 def test_profiling():
+    # todo: python (net) time seems not correct
+    # - How to deal with multiple events created in e.g. zeros()
     thread = Thread(profile=True)
     queue = thread.queue
-    ary = zeros(queue, (int(1e8),), dtype=Types.int)
-    ary.set(np.zeros((int(1e8),), dtype=Types.int))
-    ary = empty(queue, (int(1e8),), dtype=Types.int)
-    ary = empty_like(ary)
+    size = int(1e8)
+    for i in range(10):
+        ary = zeros(queue, (size,), dtype=Types.int)
+    #ary.set(np.zeros((size,), dtype=Types.int))
+    #ary_np = ary.get()
+    #ary = empty(queue, (size,), dtype=Types.int)
+    #ary = empty_like(ary)
     queue.finish()
     queue.get_profiler().show_histogram_cumulative_kernel_times()

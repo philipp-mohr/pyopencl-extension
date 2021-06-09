@@ -1,5 +1,4 @@
 import inspect
-import logging
 import os
 import re
 from collections import namedtuple
@@ -14,6 +13,7 @@ from pycparser.c_ast import BinaryOp, ID, IdentifierType, Return, Constant, Assi
     StructRef, PtrDecl, TernaryOp
 from pycparserext.ext_c_parser import FuncDeclExt, PreprocessorLine, OpenCLCParser
 
+
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
 __version__ = "1.0"
@@ -24,11 +24,14 @@ __doc__ = """This script includes helpful functions to extended PyOpenCl functio
 # framework does depends on emulation and not the other way around.
 from pyopencl._cl import LocalMemory
 
-from pyopencl.array import Array
 from pytest import mark
 
 from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec, init_array
 from pyopencl_extension.helpers.general import write_string_to_file
+from pyopencl_extension import Array
+from pyopencl.array import Array as ClArray
+
+arrays_cls = (Array, ClArray)
 
 # following lines are used to support functions from <pyopencl-complex.h>
 from pyopencl_extension.types.utilities_np_cl import is_vector_type
@@ -577,7 +580,7 @@ def cl_kernel(kernel):
     """
 
     def wrapper_loop_over_grid(global_size, local_size=None, *args):
-        args_python = [arg.get().ravel() if isinstance(arg, Array) else arg for arg in args]
+        args_python = [arg.get().ravel() if isinstance(arg, arrays_cls) else arg for arg in args]
         num_work_groups = 1
         if local_size is None:
             local_size = global_size
@@ -633,7 +636,7 @@ def cl_kernel(kernel):
                     [next(knl) for knl in blocking_kernels]
                 except StopIteration:
                     break
-        [arg.set(args_python[idx]) if isinstance(arg, Array) else arg for idx, arg in enumerate(args)]
+        [arg.set(args_python[idx]) if isinstance(arg, arrays_cls) else arg for idx, arg in enumerate(args)]
 
     return wrapper_loop_over_grid
 

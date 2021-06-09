@@ -1,11 +1,8 @@
-from typing import Any
 
-import numpy as np
 import math as math
 
-from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, Types, is_vector_type, get_unsigned_dtype
 from pyopencl_extension.types.auto_gen.types_for_emulation import *
-import logging
+from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, is_vector_type, get_unsigned_dtype
 
 cfloat_t = np.dtype('complex64').type
 cdouble_t = np.dtype('complex128').type

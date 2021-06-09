@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,7 +16,7 @@ from pyopencl.array import Array as ClArray
 
 from pyopencl_extension import CommandQueue, Array, to_device
 from pyopencl_extension.helpers.general import write_string_to_file
-from pyopencl_extension.modifications_pyopencl.array import QueueProperties
+from pyopencl_extension.modifications_pyopencl.command_queue import QueueProperties
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
     get_vec_size, Types, number_vec_elements_of_cl_type, VEC_INDICES
 from pyopencl_extension.emulation import create_py_file_and_load_module, unparse_c_code_to_python
@@ -717,6 +718,7 @@ def compile_cl_program_emulation(program_model: Program, thread: Thread, file: s
 
 def compile_cl_program(program_model: Program, thread: Thread = None, emulate: bool = False,
                        file: str = '$default_path') -> ProgramContainer:
+    t_ns_start = time.time_ns()
     # deal with file name
     if isinstance(file, Path):
         file = str(file)
@@ -756,6 +758,7 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
     # make callable kernel available in knl model instance
     for knl in program_model.kernels:
         knl.callable_kernel = callable_kernels[knl.name]
+    thread.queue.t_ns.add_compilcation(time.time_ns() - t_ns_start)
     return ProgramContainer(program_model=program_model,
                             file=file,
                             init=thread,

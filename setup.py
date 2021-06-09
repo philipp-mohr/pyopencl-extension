@@ -19,7 +19,7 @@ URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
 REQUIRES_PYTHON = '>=3.9.0'
-VERSION = '0.0.32'
+VERSION = '0.0.33'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
@@ -100,7 +100,6 @@ class LocalCommand(Command):
         os.system(f'{sys.executable} setup.py sdist bdist_wheel')
         # self.status('Building Source and Wheel (universal) distribution…')
         #os.system(f'{sys.executable} setup.py sdist bdist_wheel --universal')
-
         from pathlib import Path
         test_status = os.system(str(Path(sys.executable).parent.joinpath('pytest')))
         return test_status
