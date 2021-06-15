@@ -469,7 +469,7 @@ def test_local_memory_as_kernel_argument(thread, data_t):
         ary = to_device(thread.queue, np.ones(10).astype(data_t))
         local_mem = LocalArray(dtype=data_t, shape=5)  # 5 is to to test that local array argument is changed
         knl = Kernel('knl_local_arg',
-                     {'ary': Global(ary), 'local_mem': Local(local_mem)},
+                     {'ary': Global(ary), 'local_mem': local_mem},
                      """
                int offset = get_group_id(0)*get_local_size(0);
                for(int i=0; i<5; i++) local_mem[i] = ary[offset + i];

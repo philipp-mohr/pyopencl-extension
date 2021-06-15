@@ -174,16 +174,19 @@ def test_get_refreshed_argument_of_memoized_kernel(thread):
     assert np.all(some_knl.ary_b.get() == ary_a)
 
 
-def test_automatic_numpy_array_and_scalar_arg_to_device_conversion(thread):
-    for i in range(10):
-        ary_a = np.ones(100)
+def test_numpy_cl_array_scalar_as_kernel_arg(thread):
+    mem = {'ary_b': zeros(thread.queue, shape=(100,), dtype=Types.int)}
+    for i in range(5):
+        ary_a = np.ones(100, Types.int)
         some_knl = Kernel('some_knl',
-                          {'ary_a': ary_a,
-                           'offset': float(i)},
-                          'ary_a[get_global_id(0)] = ary_a[get_global_id(0)] + offset;',
+                          mem | {'ary_a': ary_a,
+                                 'offset': float(i)},
+                          'ary_a[get_global_id(0)] = ary_a[get_global_id(0)] + offset;' + \
+                          'ary_b[get_global_id(0)] = ary_b[get_global_id(0)] + offset;',
                           global_size=ary_a.shape).compile(thread)
         some_knl()
-    assert np.all(some_knl.ary_a.get() == ary_a + 9)
+    assert np.all(some_knl.ary_a.get() == ary_a + 4)  # every kernel call the numpy array is send to device
+    assert np.all(10 == mem['ary_b'].get())
 
 
 logging.basicConfig(level=logging.INFO)
@@ -250,9 +253,9 @@ def test_profiling():
     size = int(1e8)
     for i in range(10):
         ary = zeros(queue, (size,), dtype=Types.int)
-    #ary.set(np.zeros((size,), dtype=Types.int))
-    #ary_np = ary.get()
-    #ary = empty(queue, (size,), dtype=Types.int)
-    #ary = empty_like(ary)
+    # ary.set(np.zeros((size,), dtype=Types.int))
+    # ary_np = ary.get()
+    # ary = empty(queue, (size,), dtype=Types.int)
+    # ary = empty_like(ary)
     queue.finish()
     queue.get_profiler().show_histogram_cumulative_kernel_times()

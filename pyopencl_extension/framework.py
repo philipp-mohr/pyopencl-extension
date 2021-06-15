@@ -111,7 +111,6 @@ def preamble_generic_type_operations(number_format: str = 'real', precision: str
         raise NotImplementedError()
 
 
-
 def get_context(device):
     """
     On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
@@ -359,7 +358,8 @@ ReplacementTypes = Union[str, float, int, bool]
 @dataclass
 class FunctionBase(ABC):
     name: str = 'func'
-    args: Dict[str, Union[np.ndarray, Scalar, Global, Local, Private, Constant]] = field(default_factory=lambda: [])
+    args: Dict[str, Union[np.ndarray, Array, ClArray, LocalArray, Scalar, Global, Local, Private, Constant]] = \
+        field(default_factory=lambda: [])
     body: Union[List[str], str] = field(default_factory=lambda: [])
     replacements: Dict[str, ReplacementTypes] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
@@ -740,7 +740,9 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
     # If kernel arguments are of type np.ndarray they are converted to cl arrays here
     # This is done here, since thread is available at this point for sure.
     for knl in program_model.kernels:
-        knl.args = {k: Global(to_device(thread.queue, v)) if isinstance(v, np.ndarray) else v
+        knl.args = {k: Global(to_device(thread.queue, v)) if isinstance(v, np.ndarray) else
+                    Global(v) if isinstance(v, arrays_cls) else
+                    Local(v) if isinstance(v, LocalArray) else v
                     for k, v in knl.args.items()}
         knl.args = {k: Scalar(v) if isinstance(v, ScalarArgTypes.__args__) else v
                     for k, v in knl.args.items()}
