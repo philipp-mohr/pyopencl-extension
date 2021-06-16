@@ -174,13 +174,15 @@ def test_get_refreshed_argument_of_memoized_kernel(thread):
     assert np.all(some_knl.ary_b.get() == ary_a)
 
 
-def test_numpy_cl_array_scalar_as_kernel_arg(thread):
+def test_kernel_arg_type_conversion(thread):
     mem = {'ary_b': zeros(thread.queue, shape=(100,), dtype=Types.int)}
     for i in range(5):
         ary_a = np.ones(100, Types.int)
         some_knl = Kernel('some_knl',
                           mem | {'ary_a': ary_a,
-                                 'offset': float(i)},
+                                 'offset': float(i),  # checks if float is accepted
+                                 'val': Types.ushort(5.0)  # just a dummy value to test if ushort is accepted
+                                 },
                           'ary_a[get_global_id(0)] = ary_a[get_global_id(0)] + offset;' + \
                           'ary_b[get_global_id(0)] = ary_b[get_global_id(0)] + offset;',
                           global_size=ary_a.shape).compile(thread)

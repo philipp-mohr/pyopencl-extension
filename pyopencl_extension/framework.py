@@ -17,11 +17,30 @@ from pyopencl.array import Array as ClArray
 from pyopencl_extension import CommandQueue, Array, to_device
 from pyopencl_extension.helpers.general import write_string_to_file
 from pyopencl_extension.modifications_pyopencl.command_queue import QueueProperties
+from pyopencl_extension.types.auto_gen.cl_types import ClTypesScalar
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
     get_vec_size, Types, number_vec_elements_of_cl_type, VEC_INDICES
 from pyopencl_extension.emulation import create_py_file_and_load_module, unparse_c_code_to_python
 
-arrays_cls = (Array, ClArray)
+
+@dataclass
+class LocalArray:
+    shape: int
+    dtype: np.dtype
+    cl_local_memory: cl.LocalMemory = field(init=False, default=None)
+
+    def __post_init__(self):
+        self.cl_local_memory = cl.LocalMemory(int(self.shape * np.dtype(self.dtype).itemsize))
+
+
+TypesClArray = Union[Array, ClArray]
+TypesDefines = Union[str, float, int, bool]
+TypesReplacement = Union[str, float, int, bool]
+TypesArgArrays = Union[np.ndarray, Array, ClArray, LocalArray]
+_ = ClTypesScalar
+TypesArgScalar = Union[int, float,
+                       _.char, _.short, _.int, _.long, _.uchar, _.ushort, _.uint, _.ulong, _.half, _.float, _.double]
+# TypesKernelArg = Union[Array, TypesDefines] # todo: remove?
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -153,7 +172,7 @@ class Thread:
         return self.context.devices[0]
 
     @staticmethod
-    def from_buffer(buffer: Array) -> 'Thread':
+    def from_buffer(buffer: TypesClArray) -> 'Thread':
         return Thread(queue=buffer.queue, context=buffer.context)
 
     def __post_init__(self):
@@ -236,9 +255,6 @@ class ArgBase(ABC):
             return '{} {} *{}'.format(self.address_space_qualifier, c_name_from_dtype(self.dtype), new_name)
 
 
-ScalarArgTypes = Union[str, float, int, bool]
-
-
 @dataclass
 class Scalar(ArgBase):
     dtype: np.dtype = field(default=Types.int)
@@ -268,16 +284,6 @@ class Private(Pointer):
 
 
 @dataclass
-class LocalArray:
-    shape: int
-    dtype: np.dtype
-    cl_local_memory: cl.LocalMemory = field(init=False, default=None)
-
-    def __post_init__(self):
-        self.cl_local_memory = cl.LocalMemory(int(self.shape * np.dtype(self.dtype).itemsize))
-
-
-@dataclass
 class Local(Pointer):
     dtype: Union[np.dtype, LocalArray] = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__local')
@@ -292,14 +298,14 @@ class Local(Pointer):
 
 @dataclass
 class Global(Pointer):
-    dtype: Union[np.dtype, Array] = field(default=Types.int)
+    dtype: Union[np.dtype, TypesClArray] = field(default=Types.int)
     read_only: bool = False  # adds 'const' qualifier to let compiler know that global array is never written
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__global')
-    default: Array = field(init=False, default='')
+    default: TypesClArray = field(init=False, default='')
 
     def __post_init__(self):
-        if isinstance(self.dtype, arrays_cls):
+        if isinstance(self.dtype, TypesClArray.__args__):
             self.default = self.dtype
             self.dtype = self.dtype.dtype
 
@@ -317,18 +323,15 @@ class Constant(Pointer):
 
     https://stackoverflow.com/questions/17991714/opencl-difference-between-constant-memory-and-const-global-memory/50931783
     """
-    dtype: Union[np.dtype, Array] = field(default=Types.int)
+    dtype: Union[np.dtype, TypesClArray] = field(default=Types.int)
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__constant')
-    default: Array = field(init=False, default='')
+    default: TypesClArray = field(init=False, default='')
 
     def __post_init__(self):
-        if isinstance(self.dtype, arrays_cls):
+        if isinstance(self.dtype, TypesClArray.__args__):
             self.default = self.dtype
             self.dtype = self.dtype.dtype
-
-
-KernelArgTypes = Union[Array, ScalarArgTypes]
 
 
 def template(func: Union['Kernel', 'Function']) -> str:
@@ -352,18 +355,15 @@ def template(func: Union['Kernel', 'Function']) -> str:
     return tpl_formatted
 
 
-ReplacementTypes = Union[str, float, int, bool]
-
-
 @dataclass
 class FunctionBase(ABC):
     name: str = 'func'
-    args: Dict[str, Union[np.ndarray, Array, ClArray, LocalArray, Scalar, Global, Local, Private, Constant]] = \
+    args: Dict[str, Union[TypesArgArrays, TypesArgScalar, Scalar, Global, Local, Private, Constant]] = \
         field(default_factory=lambda: [])
     body: Union[List[str], str] = field(default_factory=lambda: [])
-    replacements: Dict[str, ReplacementTypes] = field(default_factory=lambda: {})
+    replacements: Dict[str, TypesReplacement] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
-    defines: Dict[str, ScalarArgTypes] = field(default_factory=lambda: {})
+    defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
 
     @property
     def header(self):
@@ -445,7 +445,7 @@ class Program(Compilable):
 
     functions: List[Function] = field(default_factory=lambda: [])
     kernels: List[Kernel] = field(default_factory=lambda: [])
-    defines: Dict[str, ScalarArgTypes] = field(default_factory=lambda: {})
+    defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})
 
     @property
@@ -530,7 +530,7 @@ class CallableKernel(ABC):
 
     @staticmethod
     def _typing_scalar_argument(arg_model: Union[Scalar, Scalar],
-                                scalar_value_provided: ScalarArgTypes):
+                                scalar_value_provided: TypesArgScalar):
         if get_vec_size(arg_model.dtype) == 1:
             return np.dtype(arg_model.dtype).type(scalar_value_provided)
         else:
@@ -584,7 +584,7 @@ class CallableKernel(ABC):
                              f'but got buffer with type {buffer_type_call}')
 
         # check if buffer elements of array arguments have memory order as expected (c or f contiguous)
-        def b_array_memory_order_as_expected(ary_model: Global, ary_call: Array):
+        def b_array_memory_order_as_expected(ary_model: Global, ary_call: TypesClArray):
             if ary_model.order_in_memory == OrderInMemory.C_CONTIGUOUS:
                 return ary_call.flags.c_contiguous
             else:  # f_contiguous
@@ -611,7 +611,7 @@ class CallableKernelEmulation(CallableKernel):
     def __call__(self,
                  global_size: KernelGridType = None,
                  local_size: KernelGridType = None,
-                 **kwargs: Union[Array, object]) -> cl.Event:
+                 **kwargs: Union[TypesClArray, object]) -> cl.Event:
         # e.g. if two kernels of a program shall run concurrently, this can be enable by passing another queue here
         if 'queue' in kwargs:  # currently queue kwarg is not considered in emulation
             _ = kwargs.pop('queue')
@@ -619,7 +619,7 @@ class CallableKernelEmulation(CallableKernel):
                                                                 local_size=local_size, **kwargs)
         self.function(global_size, local_size, *args)
         # create user event with context retrieved from first arg of type Array
-        event = cl.UserEvent([_ for _ in args if isinstance(_, arrays_cls)][0].context)
+        event = cl.UserEvent([_ for _ in args if isinstance(_, TypesClArray.__args__)][0].context)
         event.set_status(cl.command_execution_status.COMPLETE)
         return event
 
@@ -650,7 +650,7 @@ class CallableKernelDevice(CallableKernel):
                                                                 local_size=local_size, **kwargs)
         self.check_local_size_not_exceeding_device_limits(queue.device, local_size)
         # extract buffer from cl arrays separate, since in emulation we need cl arrays
-        args_cl = [arg.data if isinstance(arg, arrays_cls) else arg for i, arg in enumerate(args)]
+        args_cl = [arg.data if isinstance(arg, TypesClArray.__args__) else arg for i, arg in enumerate(args)]
         event = self.compiled(queue, global_size, local_size, *args_cl)
         queue.add_event(event, self.kernel_model.name)
         return event
@@ -741,10 +741,10 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
     # This is done here, since thread is available at this point for sure.
     for knl in program_model.kernels:
         knl.args = {k: Global(to_device(thread.queue, v)) if isinstance(v, np.ndarray) else
-                    Global(v) if isinstance(v, arrays_cls) else
-                    Local(v) if isinstance(v, LocalArray) else v
-                    for k, v in knl.args.items()}
-        knl.args = {k: Scalar(v) if isinstance(v, ScalarArgTypes.__args__) else v
+                    Global(v) if isinstance(v, TypesClArray.__args__) else
+                    Local(v) if isinstance(v, LocalArray) else
+                    Scalar(v) if isinstance(v, TypesArgScalar.__args__) else
+                    v
                     for k, v in knl.args.items()}
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}
@@ -776,7 +776,7 @@ def int_safe(val: float):
 
 class HashArray(Array):
     def __init__(self, *args, **kwargs):
-        if isinstance(args[0], arrays_cls):
+        if isinstance(args[0], TypesClArray.__args__):
             a = args[0]
             super().__init__(a.queue, a.shape, a.dtype, order="C", allocator=a.allocator,
                              data=a.data, offset=a.offset, strides=a.strides, events=a.events)
