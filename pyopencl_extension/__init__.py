@@ -4,7 +4,7 @@ from .emulation import use_existing_file_for_emulation
 from .framework import (Thread, Private, Scalar, Local, Global, Constant, Function,
                         Kernel,
                         Program, get_thread, get_device, get_vec_size, LocalArray, HashArray, Helpers, Types,
-                        scalar_type_from_vec_type, KernelGridType, int_safe)
+                        scalar_type_from_vec_type, KernelGridType, int_safe, set_current_thread, get_current_thread)
 from .helpers.general import (typed_partial)
 from .types.utilities_np_cl import (match_vec_size, c_name_from_dtype, is_complex_type, is_vector_type, VEC_INDICES,
                                     match_integer_type_for_select)

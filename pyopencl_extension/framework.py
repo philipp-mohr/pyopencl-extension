@@ -130,32 +130,42 @@ def preamble_generic_type_operations(number_format: str = 'real', precision: str
         raise NotImplementedError()
 
 
-def get_context(device):
+def get_devices():
     """
     On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
+    This function return a list of all available devices.
+    """
+    platforms = cl.get_platforms()
+    devices = [d for p in platforms for d in p.get_devices(device_type=cl.device_type.GPU)]
+    # devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]][0]
+    return devices
+
+
+def get_context(device_id: int = None):
+    """
 
     This function facilitates to get a context and queue pointing to a particular device.
-
-    The first parameter device[0] selects the platform, like Intel or AMD.
-
-    The second parameter selects a particular device of that platform, e.g. if multiple AMD Graphiccards ar installed.
-
-    :param device: e.g. deice= (0,1). 0 refers to the platform, and 1 to the device index on that platform.
     :return: the context instance
     """
-    if device[0] == 'some_context':
+    if device_id is None:
         context = cl.create_some_context()
-    else:
-        platform = cl.get_platforms()
-        try:
-            my_gpu_devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]]
-        except:
-            try:
-                my_gpu_devices = platform[device[0]].get_devices()
-            except:
-                raise ValueError('No matching device found')
-        context = cl.Context(devices=my_gpu_devices)
+    else:  # currently only a single device is supported. If required interfac must be adjusted to accept multiple ids
+        device = get_devices()[device_id]
+        context = cl.Context(devices=[device])
     return context
+
+
+def get_device_id_from_env_var() -> int:
+    # add environmental variable PYOPENCL_DEVICE with 0,0 to select vendor 0 device 0 as default device
+    vendor, device = tuple([int(part) for part in os.environ["PYOPENCL_DEVICE"].split(',')])
+    platforms = cl.get_platforms()
+    device = [platforms[vendor].get_devices(device_type=cl.device_type.GPU)[device]][0]
+    devices = get_devices()
+    matches = np.where(np.array([d.int_ptr for d in devices]) == device.int_ptr)
+    if not len(matches) == 1:
+        raise ValueError('int_ptr is expected to be unique identifier for device. '
+                         'Change current implementation to fix issue')
+    return matches[0][0]
 
 
 @dataclass
@@ -171,6 +181,9 @@ class Thread:
     def device(self) -> cl.Device:
         return self.context.devices[0]
 
+    def __hash__(self) -> int:
+        return hash(f'{self.context.int_ptr}{self.queue.int_ptr}')
+
     @staticmethod
     def from_buffer(buffer: TypesClArray) -> 'Thread':
         return Thread(queue=buffer.queue, context=buffer.context)
@@ -178,8 +191,7 @@ class Thread:
     def __post_init__(self):
         if self.context is None:
             try:
-                # add environmental variable PYOPENCL_DEVICE with 0,0 to select vendor 0 device 0 as default device
-                device = tuple([int(part) for part in os.environ["PYOPENCL_DEVICE"].split(',')])
+                device = get_device_id_from_env_var()
                 self.context = get_context(device)  # fallback = cl.create_some_context()
             except KeyError as err:
                 self.context = cl.create_some_context()
@@ -193,20 +205,35 @@ class Thread:
             os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
         else:
             os.environ['PYOPENCL_COMPILER_OUTPUT'] = '0'
+        set_current_thread(self)
 
 
-def get_device(device: Tuple[int, int]) -> cl.Device:
-    platform = cl.get_platforms()
-    my_gpu_devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]][0]
-    return my_gpu_devices
+def get_device(device_id: int) -> cl.Device:
+    return get_devices()[device_id]
 
 
-def get_thread(device: Tuple[int, int], profile=False) -> Thread:
+def get_thread(device_id: int, profile=False) -> Thread:
     """
     :return: A container class with context and queue pointing to selected device.
     """
-    context = get_context(device)
+    context = get_context(device_id)
     return Thread(context, profile=profile)
+
+
+# Convenience feature to access a global thread instance, e.g. useful to avoid passing thread instance into functions.
+_current_thread = None
+
+
+def set_current_thread(thread: Thread):
+    global _current_thread
+    _current_thread = thread
+
+
+def get_current_thread():
+    global _current_thread
+    if _current_thread is None:
+        _current_thread = get_thread(0)
+    return _current_thread
 
 
 def catch_invalid_argument_name(name: str):
@@ -683,7 +710,7 @@ class MemoizeKernelFunctions:
 
     def __call__(self, program_model: Program, thread: Thread, file: str = None):
         body = ''.join(program_model.rendered_template)
-        _id = hash(f'{thread.context.int_ptr}{thread.queue.int_ptr}{body}')
+        _id = hash(f'{hash(thread)}{body}')
         if _id not in self.memo:
             self.memo[_id] = self.f(program_model, thread, file)
         return self.memo[_id]
@@ -741,10 +768,10 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
     # This is done here, since thread is available at this point for sure.
     for knl in program_model.kernels:
         knl.args = {k: Global(to_device(thread.queue, v)) if isinstance(v, np.ndarray) else
-                    Global(v) if isinstance(v, TypesClArray.__args__) else
-                    Local(v) if isinstance(v, LocalArray) else
-                    Scalar(v) if isinstance(v, TypesArgScalar.__args__) else
-                    v
+        Global(v) if isinstance(v, TypesClArray.__args__) else
+        Local(v) if isinstance(v, LocalArray) else
+        Scalar(v) if isinstance(v, TypesArgScalar.__args__) else
+        v
                     for k, v in knl.args.items()}
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}

@@ -6,7 +6,30 @@ import pytest
 
 from pyopencl_extension import Helpers, Thread, Program, Kernel, Function, Scalar, Global, HashArray, Array, zeros, \
     to_device, empty, empty_like
+from pyopencl_extension.framework import get_current_thread, get_devices, set_current_thread, get_thread
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, Types
+
+
+def test_current_thread_feature_1():
+    # whenever Thread() is called this is set as the current thread. Be careful, that Thread() leads to a new
+    # context/queue.
+    thread = Thread()
+    assert hash(get_current_thread()) == hash(thread)
+
+
+def test_current_thread_feature_2():
+    set_current_thread(None)
+    thread1 = get_current_thread()
+    # use get_devices() to get list with available_devices where index corresponds to device id
+    set_current_thread(thread1)
+    thread1_reused = get_current_thread()
+    assert hash(thread1) == hash(thread1_reused)
+    set_current_thread(get_thread(device_id=0))
+    thread2 = get_current_thread()
+    assert hash(thread1) != hash(thread2)
+    set_current_thread(thread1)
+    thread1_reused = get_current_thread()
+    assert hash(thread1) == hash(thread1_reused)
 
 
 class MyComponentAutomaticArgs:
