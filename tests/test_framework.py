@@ -1,4 +1,5 @@
 import logging
+import queue
 import time
 
 import numpy as np
@@ -164,23 +165,31 @@ def test_non_existing_argument_raises_warning(thread):
 
 
 def test_memoize_kernel(thread):
-    ary_a = np.ones(100)
-    ary_b = np.zeros(100)
+    # thread = Thread(profile=True)
+    ary_a = np.ones(int(1e3))
+    ary_b = np.zeros(ary_a.shape)
     ary_a_buffer = to_device(thread.queue, ary_a)
     ary_b_buffer = to_device(thread.queue, ary_b)
     n_recompilations = 100
     for i in range(n_recompilations + 1):
-        some_knl = Kernel('some_knl',
-                          {'ary_a': Global(ary_a_buffer),
-                           'ary_b': Global(ary_b_buffer)},
-                          """
-                 ary_b[get_global_id(0)] = ary_a[get_global_id(0)];
-                 """).compile(thread)
+        kernels = []
+        for j in range(10):
+            some_knl = Kernel(f'some_knl_{j}',
+                              {'ary_a': Global(ary_a_buffer),
+                               'ary_b': Global(ary_b_buffer)},
+                              """
+                     ary_b[get_global_id(0)] = ary_a[get_global_id(0)];
+                     """)
+            kernels.append(some_knl)
+        Program(kernels=kernels).compile(thread)
         some_knl(global_size=ary_a.shape)
         if i == 1:
             t = time.time()
     time_per_recompile = (time.time() - t) / n_recompilations
-    assert time_per_recompile < 0.01  # less than 10 ms overhead per recompilation
+    thread.queue.finish()
+    #thread.queue.get_profiler().show_histogram_cumulative_kernel_times()
+    print(time_per_recompile)
+    assert time_per_recompile < 0.001  # less than 1 ms overhead per recompilation achieved through caching
 
 
 def test_get_refreshed_argument_of_memoized_kernel(thread):

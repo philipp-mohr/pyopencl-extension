@@ -3,6 +3,7 @@ import re
 import time
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Union, Tuple, List, Dict, Callable
 
@@ -276,7 +277,7 @@ class ArgBase(ABC):
 
     def to_string(self, name):
         new_name = catch_invalid_argument_name(name)
-        if type(self) in [Scalar, Scalar]:  # scalar
+        if type(self) in [Scalar]:  # scalar
             return '{} {} {}'.format(self.address_space_qualifier, c_name_from_dtype(self.dtype), new_name)
         else:  # array
             return '{} {} *{}'.format(self.address_space_qualifier, c_name_from_dtype(self.dtype), new_name)
@@ -362,7 +363,7 @@ class Constant(Pointer):
 
 
 def template(func: Union['Kernel', 'Function']) -> str:
-    body = func.body if type(func.body) == str else ''.join(func.body)
+    body = ''.join(func.body)
     tpl = func.header + '\n{' + body + '}\n'
     args = [value.to_string(key) + ',' for key, value in func.args.items()]
     args = '{}'.format('\n'.join(args))
@@ -414,6 +415,9 @@ class Function(FunctionBase):
         if isinstance(self.body, str):
             self.body = [self.body]
 
+    def __str__(self) -> str:
+        return super().__str__() + str(self.returns)
+
 
 KernelGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
 
@@ -443,6 +447,9 @@ class Kernel(FunctionBase, Compilable):
     def __post_init__(self):
         if isinstance(self.body, str):
             self.body = [self.body]
+
+    def __str__(self) -> str:
+        return super().__str__()
 
     @property
     def template(self) -> str:
@@ -474,6 +481,27 @@ class Program(Compilable):
     kernels: List[Kernel] = field(default_factory=lambda: [])
     defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})
+
+    @staticmethod
+    def _arg_to_str_for_hash(name, arg: ArgBase):
+        return name + str(type(arg)) + str(hash(arg.dtype)) + arg.address_space_qualifier
+
+    @staticmethod
+    def _func_to_str_for_hash(func: FunctionBase):
+        str_args = ''.join(Program._arg_to_str_for_hash(k, v) for k, v in func.args.items())
+        str_repl = ''.join(k + str(v) for k, v in func.replacements.items())
+        str_type_defs = ''.join(k + str(v) for k, v in func.type_defs.items())
+        str_defines = ''.join(k + str(v) for k, v in func.defines.items())
+        str_body = ''.join(func.body)
+        return str_type_defs + str_defines + str_repl + func.header + func.name + str_args + str_body
+
+    def __hash__(self) -> int:
+        str_funcs = ''.join(self._func_to_str_for_hash(knl) for knl in self.functions)
+        str_kernels = ''.join(self._func_to_str_for_hash(knl) for knl in self.kernels)
+        str_type_defs = ''.join(k + str(v) for k, v in self.type_defs.items())
+        str_defines = ''.join(k + str(v) for k, v in self.defines.items())
+        prog_str = str_defines + str_type_defs + str_funcs + str_kernels
+        return int(str(hash(prog_str)) + str(abs(hash(prog_str + 'something'))))  # double hash to avoid collisions
 
     @property
     def rendered_template(self):
@@ -709,8 +737,8 @@ class MemoizeKernelFunctions:
         self.memo = {}
 
     def __call__(self, program_model: Program, thread: Thread, file: str = None):
-        body = ''.join(program_model.rendered_template)
-        _id = hash(f'{hash(thread)}{body}')
+        # body = ''.join(program_model.rendered_template)
+        _id = hash(f'{hash(thread)}{hash(program_model)}')
         if _id not in self.memo:
             self.memo[_id] = self.f(program_model, thread, file)
         return self.memo[_id]
