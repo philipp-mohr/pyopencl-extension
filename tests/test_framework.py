@@ -1,6 +1,7 @@
 import logging
 import queue
 import time
+import timeit
 
 import numpy as np
 import pytest
@@ -187,7 +188,7 @@ def test_memoize_kernel(thread):
             t = time.time()
     time_per_recompile = (time.time() - t) / n_recompilations
     thread.queue.finish()
-    #thread.queue.get_profiler().show_histogram_cumulative_kernel_times()
+    # thread.queue.get_profiler().show_histogram_cumulative_kernel_times()
     print(time_per_recompile)
     assert time_per_recompile < 0.001  # less than 1 ms overhead per recompilation achieved through caching
 
@@ -293,3 +294,42 @@ def test_profiling():
     # ary = empty_like(ary)
     queue.finish()
     queue.get_profiler().show_histogram_cumulative_kernel_times()
+
+
+# def test_kernel_timeit():
+#     # todo: python (net) time seems not correct
+#     # - How to deal with multiple events created in e.g. zeros()
+#     thread = Thread(profile=True)
+#     ary_a = np.ones(100) + 5
+#     ary_b = np.zeros(100)
+#     some_knl = Kernel('some_knl',
+#                       {'ary_a': Global(to_device(thread.queue, ary_a)),
+#                        'ary_b': Global(to_device(thread.queue, ary_b))},
+#                       """
+#              ary_b[get_global_id(0)] = ary_a[get_global_id(0)];
+#              """, global_size=ary_a.shape).compile(thread)
+#     some_knl.timeit(reps=1, number=10)
+
+
+def test_add_functions_inside_function_or_kernel_definition(thread):
+    ary_a = to_device(thread.queue, np.ones(100))
+    fnc_add3 = Function('add_three',
+                        {'a': Scalar(Types.int)},
+                        'return a + 3;', returns=Types.int)
+    fnc_add5 = Function('add_five',
+                        {'a': Scalar(Types.int)},
+                        """
+             return add_three(a)+2;
+             """,
+                        functions=[fnc_add3], returns=Types.int)
+    some_knl = Kernel('some_knl',
+                      {'ary_a': Global(ary_a)},
+                      """
+             ary_a[get_global_id(0)] = add_five(ary_a[get_global_id(0)]);
+             """, global_size=ary_a.shape,
+                      functions=[fnc_add3, # function intentionally placed here second time for testing correct behavior
+                                 fnc_add5])
+    functions = [] # funcitons defined here have higher proiority in case of name conflicts
+    Program(functions=functions, kernels=[some_knl]).compile(thread)
+    some_knl()
+    assert ary_a.get()[0] == 6

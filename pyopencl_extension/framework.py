@@ -392,6 +392,7 @@ class FunctionBase(ABC):
     replacements: Dict[str, TypesReplacement] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
     defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
+    functions: List['Function'] = field(default_factory=lambda: [])
 
     @property
     def header(self):
@@ -466,6 +467,28 @@ class Kernel(FunctionBase, Compilable):
             raise ValueError('Kernel has not been compiled yet.')
 
 
+def _get_all_funcs(f: FunctionBase, flat_list=None)->List[FunctionBase]:
+    if flat_list is None:
+        flat_list = [f]
+        for sub_f in f.functions:
+            _get_all_funcs(sub_f, flat_list)
+        return flat_list
+    else:
+        flat_list.append(f)
+        flat_list.extend([_get_all_funcs(sub_f, flat_list) for sub_f in f.functions])
+
+
+def _get_list_with_unique_functions(functions, kernels):
+    functions_in_kernels = [f for k in kernels for f in k.functions]
+    all_funcs = [_f for f in functions + functions_in_kernels for _f in _get_all_funcs(f)]
+    all_funcs_unique, _func_names = [], []
+    for f in all_funcs:
+        if len(_func_names) == 0 or f.name not in _func_names:
+            all_funcs_unique.append(f)
+            _func_names.append(f.name)
+    return all_funcs_unique
+
+
 @dataclass
 class Program(Compilable):
     """
@@ -505,7 +528,9 @@ class Program(Compilable):
 
     @property
     def rendered_template(self):
-        functions = [f.template for f in self.functions] + [k.template for k in self.kernels]
+        all_funcs = _get_list_with_unique_functions(self.functions, self.kernels)
+
+        functions = [f.template for f in all_funcs] + [k.template for k in self.kernels]
         functions = '\n'.join(functions)
 
         if 'double' in functions:
