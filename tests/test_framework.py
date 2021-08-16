@@ -327,8 +327,7 @@ def test_add_functions_inside_function_or_kernel_definition(thread):
                       """
              ary_a[get_global_id(0)] = add_five(ary_a[get_global_id(0)]);
              """, global_size=ary_a.shape,
-                      functions=[fnc_add3, # function intentionally placed here second time for testing correct behavior
-                                 fnc_add5])
+                      functions=[fnc_add5])
     functions = [] # funcitons defined here have higher proiority in case of name conflicts
     Program(functions=functions, kernels=[some_knl]).compile(thread)
     some_knl()

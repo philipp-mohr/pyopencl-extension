@@ -469,13 +469,14 @@ class Kernel(FunctionBase, Compilable):
 
 def _get_all_funcs(f: FunctionBase, flat_list=None)->List[FunctionBase]:
     if flat_list is None:
-        flat_list = [f]
+        flat_list = []
         for sub_f in f.functions:
             _get_all_funcs(sub_f, flat_list)
+        flat_list.append(f)
         return flat_list
     else:
-        flat_list.append(f)
         flat_list.extend([_get_all_funcs(sub_f, flat_list) for sub_f in f.functions])
+        flat_list.append(f)
 
 
 def _get_list_with_unique_functions(functions, kernels):
