@@ -425,7 +425,7 @@ KernelGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
 
 class Compilable:
     @abstractmethod
-    def compile(self, thread: Thread, emulate: bool = False):
+    def compile(self, thread: Thread=None, emulate: bool = False):
         pass
 
     @staticmethod
@@ -435,7 +435,7 @@ class Compilable:
 
 @dataclass
 class Kernel(FunctionBase, Compilable):
-    def compile(self, thread, emulate: bool = False, file='$default_path'):
+    def compile(self, thread=None, emulate: bool = False, file='$default_path'):
         Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file)
         return self.callable_kernel
         # return compile_cl_kernel(self, thread, emulate=emulate, file=file)
@@ -496,7 +496,7 @@ class Program(Compilable):
     Models an OpenCl Program containing functions or kernels.
     """
 
-    def compile(self, thread: Thread, emulate: bool = False,
+    def compile(self, thread: Thread=None, emulate: bool = False,
                 file: str = '$default_path') -> 'ProgramContainer':
 
         return compile_cl_program(self, thread, emulate, file)
@@ -814,9 +814,9 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
         try:
             knl_arg_buffer = [v for k, v in program_model.kernels[0].args.items()
                               if isinstance(v, Global) and v.default is not None][0]
-            thread = Thread(context=knl_arg_buffer.default.context, queue=knl_arg_buffer.default.queue)
+            thread = Thread.from_buffer(knl_arg_buffer.default)
         except IndexError:  # when no default value is present index error is raised
-            thread = Thread()
+            thread = get_current_thread()
 
     # If kernel arguments are of type np.ndarray they are converted to cl arrays here
     # This is done here, since thread is available at this point for sure.
