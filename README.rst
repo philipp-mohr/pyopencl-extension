@@ -2,15 +2,14 @@
 pyopencl-extension
 ==========================
 
-This package extends PyOpenCl by providing an elegant programming framework and debugging capabilities.
+This package extends PyOpenCl by providing an easy to use Kernel programming framework and debugging capabilities.
 
 What makes pyopencl-extension special?
    * Build on top of `PyOpenCl <https://pypi.org/project/pyopencl/>`_ which can increase performance significantly.
    * Usage of this framework forces consistent code when programming for GPU.
    * Allows debugging of OpenCl-Programs through kernel emulation in Python using a visual debugger (tested with Pycharm).
-   * OpenCl emulation allows to find out-of-bounds array indexing easily.
+   * OpenCl emulation allows to find out-of-bounds array indexing more easily.
    * Integrated profiling features give quick overview over performance bottlenecks.
-   * ...
 
 The project is in an early development stage and actively maintained.
 For any feature requests/feedback/etc. you can get in touch via

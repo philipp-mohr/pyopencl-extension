@@ -1,4 +1,3 @@
-
 import math as math
 
 from pyopencl_extension.types.auto_gen.types_for_emulation import *
@@ -105,9 +104,13 @@ any = lambda x: np.any(x)
 
 def init_array(size, type_c):
     if isinstance(type_c, TypeHandlerScalar):
-        return np.ones((size,), dtype=c_to_np_type_name_catch(type_c.dtype)).view(CArray)
+        ary = np.empty((size,), dtype=c_to_np_type_name_catch(type_c.dtype))
+        ary[:] = 99999  # arbitrary number to indicate that element of array contains intial value
+        return ary.view(CArray)
     elif isinstance(type_c, TypeHandlerVec):
-        return np.ones((size,), dtype=type_c.dtype).view(CArrayVec)
+        ary = np.empty((size,), dtype=type_c.dtype)
+        ary[:] = 99999  # arbitrary number to indicate that element of array contains intial value
+        return ary.view(CArrayVec)
     else:
         raise ValueError(f'Array initialized with {str(type_c)} not supported')
 
