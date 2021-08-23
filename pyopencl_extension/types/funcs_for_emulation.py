@@ -100,6 +100,7 @@ barrier = lambda x: x
 CLK_GLOBAL_MEM_FENCE = None
 select = lambda a, b, c: b if c else a
 any = lambda x: np.any(x)
+INFINITY = np.inf
 
 
 def init_array(size, type_c):
