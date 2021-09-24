@@ -328,7 +328,26 @@ def test_add_functions_inside_function_or_kernel_definition(thread):
              ary_a[get_global_id(0)] = add_five(ary_a[get_global_id(0)]);
              """, global_size=ary_a.shape,
                       functions=[fnc_add5])
-    functions = [] # funcitons defined here have higher proiority in case of name conflicts
+    functions = []  # funcitons defined here have higher proiority in case of name conflicts
     Program(functions=functions, kernels=[some_knl]).compile(thread)
     some_knl()
     assert ary_a.get()[0] == 6
+
+
+def test_conversion_knl_fnc_args_with_no_pointer_format(thread):
+    queue = thread.queue
+    a_np = np.array([0.1, 0.2], dtype=Types.float)
+    b_cl = zeros(queue, shape=(2,), dtype=Types.float)
+    fnc = Function('copy_fnc',
+                   {'a': a_np, 'b': b_cl, 'idx': Scalar(Types.int)},
+                   """
+                   b[idx] = a[idx];
+                   """)
+    knl = Kernel('some_knl',
+                 {'a': a_np, 'b': b_cl},
+                 """
+                 copy_fnc(a, b, get_global_id(0));
+                 """, functions=[fnc], global_size=b_cl.shape)
+    knl.compile(thread)
+    knl()
+    assert np.all(a_np==b_cl.get())

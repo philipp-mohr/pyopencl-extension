@@ -394,6 +394,11 @@ class FunctionBase(ABC):
     defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
     functions: List['Function'] = field(default_factory=lambda: [])
 
+    def __post_init__(self):
+        if isinstance(self.body, str):
+            self.body = [self.body]
+        self._prepares_args()
+
     @property
     def header(self):
         return '${returns} ${name}(${args})'
@@ -402,6 +407,28 @@ class FunctionBase(ABC):
     @abstractmethod
     def template(self) -> str:
         pass
+
+    @staticmethod
+    def _prepare_arg(v):
+        """
+        This is a convenience feature. Arguments might be provided only as numpy array, python integer or float etc.
+        Therefore, this function adds appropriate pointer type.
+        """
+        if isinstance(v, np.ndarray):
+            g_arg = Global(v.dtype)
+            g_arg.default = v
+            return g_arg
+        elif isinstance(v, TypesClArray.__args__):
+            return Global(v)
+        elif isinstance(v, LocalArray):
+            return Local(v)
+        elif isinstance(v, TypesArgScalar.__args__):
+            return Scalar(v)
+        else:
+            return v
+
+    def _prepares_args(self):
+        self.args = {k: self._prepare_arg(v) for k, v in self.args.items()}
 
 
 @dataclass
@@ -412,10 +439,6 @@ class Function(FunctionBase):
 
     returns: np.dtype = field(default_factory=lambda: np.dtype(np.void))
 
-    def __post_init__(self):
-        if isinstance(self.body, str):
-            self.body = [self.body]
-
     def __str__(self) -> str:
         return super().__str__() + str(self.returns)
 
@@ -425,7 +448,7 @@ KernelGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
 
 class Compilable:
     @abstractmethod
-    def compile(self, thread: Thread=None, emulate: bool = False):
+    def compile(self, thread: Thread = None, emulate: bool = False):
         pass
 
     @staticmethod
@@ -445,10 +468,6 @@ class Kernel(FunctionBase, Compilable):
     returns: np.dtype = field(default_factory=lambda: np.dtype(np.void), init=False)
     callable_kernel: 'CallableKernel' = field(default_factory=lambda: None, init=False)
 
-    def __post_init__(self):
-        if isinstance(self.body, str):
-            self.body = [self.body]
-
     def __str__(self) -> str:
         return super().__str__()
 
@@ -467,7 +486,7 @@ class Kernel(FunctionBase, Compilable):
             raise ValueError('Kernel has not been compiled yet.')
 
 
-def _get_all_funcs(f: FunctionBase, flat_list=None)->List[FunctionBase]:
+def _get_all_funcs(f: FunctionBase, flat_list=None) -> List[FunctionBase]:
     if flat_list is None:
         flat_list = []
         for sub_f in f.functions:
@@ -496,7 +515,7 @@ class Program(Compilable):
     Models an OpenCl Program containing functions or kernels.
     """
 
-    def compile(self, thread: Thread=None, emulate: bool = False,
+    def compile(self, thread: Thread = None, emulate: bool = False,
                 file: str = '$default_path') -> 'ProgramContainer':
 
         return compile_cl_program(self, thread, emulate, file)
@@ -790,7 +809,7 @@ def compile_cl_program_device(program_model: Program, thread: Thread = None, fil
 @MemoizeKernelFunctions
 def compile_cl_program_emulation(program_model: Program, thread: Thread, file: str = None) -> Dict[str,
                                                                                                    Callable]:
-    code_py = unparse_c_code_to_python(program_model.rendered_template)
+    code_py = unparse_c_code_to_python(code_c=program_model.rendered_template)
     module = create_py_file_and_load_module(code_py, file)
     kernels_model = program_model.kernels
     callable_kernels = {knl.name: module.__getattribute__(knl.name) for knl in kernels_model}
@@ -820,13 +839,15 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
 
     # If kernel arguments are of type np.ndarray they are converted to cl arrays here
     # This is done here, since thread is available at this point for sure.
+    def deal_with_np_arrays(v):
+        if isinstance(v, Global) and isinstance(v.default, np.ndarray):
+            v.default = to_device(thread.queue, ary=v.default)
+            return v
+        else:
+            return v
+
     for knl in program_model.kernels:
-        knl.args = {k: Global(to_device(thread.queue, v)) if isinstance(v, np.ndarray) else
-        Global(v) if isinstance(v, TypesClArray.__args__) else
-        Local(v) if isinstance(v, LocalArray) else
-        Scalar(v) if isinstance(v, TypesArgScalar.__args__) else
-        v
-                    for k, v in knl.args.items()}
+        knl.args = {k: deal_with_np_arrays(v) for k, v in knl.args.items()}
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}
     if emulate:
