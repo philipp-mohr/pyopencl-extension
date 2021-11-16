@@ -1,17 +1,22 @@
+import logging
+import os
 import time
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 import pyopencl as cl
 
+from pyopencl_extension import get_devices, Context
 
-@dataclass
-class QueueProperties:
-    DEFAULT: int = 0
-    ON_DEVICE: int = 4
-    ON_DEVICE_DEFAULT: int = 8
-    OUT_OF_ORDER_EXEC_MODE_ENABLE: int = 1
-    PROFILING_ENABLE: int = 2
+
+class QueueProperties(Enum):
+    DEFAULT = 0
+    ON_DEVICE = 4
+    ON_DEVICE_DEFAULT = 8
+    OUT_OF_ORDER_EXEC_MODE_ENABLE = 1
+    # https://stackoverflow.com/questions/29068229/is-there-a-way-to-profile-an-opencl-or-a-pyopencl-program
+    PROFILING_ENABLE = 2
 
 
 @dataclass
@@ -25,43 +30,48 @@ class TimingsQueue:
     profiling_enabled: bool = True
 
     def __post_init__(self):
-        self.queue_created = time.time_ns()
+        self.queue_created = time.perf_counter_ns()
 
     def add_blocking(self, t):
         if self.profiling_enabled:
             self.blocking += t
 
-    def add_compilcation(self, t):
-        if self.profiling_enabled:
-            self.compilation += t
-
 
 class CommandQueue(cl.CommandQueue):
-    def __init__(self, context, device=None, properties=0, max_len_events=1e6):
+    def __init__(self, context, device=None, properties: QueueProperties | int = QueueProperties.DEFAULT,
+                 max_len_events=1e6):
+        if isinstance(properties, QueueProperties):
+            properties = properties.value
         super().__init__(context, device, properties)
         self.max_len_events = int(max_len_events)
         self.events = []
+        self._context = context  # inside of super call context is casted to original pyopencl context class
         self.profiling_enabled = True if self.properties == cl.command_queue_properties.PROFILING_ENABLE else False
         self.t_ns = TimingsQueue(profiling_enabled=self.profiling_enabled)
 
+    @property
+    def context(self) -> Context:
+        return self._context
+
     def get_profiler(self) -> 'Profiling':
-        self.t_ns.profiling_finished = time.time_ns()
+        self.t_ns.profiling_finished = time.perf_counter_ns()
+        self.t_ns.compilation = self.context.time_compilation_ns
         return Profiling(self)
 
     def add_event(self, event, name):
         if self.profiling_enabled:
             if len(self.events) == 0:
-                self.t_ns.first_event_added = time.time_ns()
+                self.t_ns.first_event_added = time.perf_counter_ns()
             if len(self.events) < self.max_len_events:
                 self.events.append((name, event))
-                self.t_ns.last_event_added = time.time_ns()
+                self.t_ns.last_event_added = time.perf_counter_ns()
             else:
                 raise ValueError('Forgot to disable profiling?')
 
     def finish(self):
-        t0 = time.time_ns()
+        t0 = time.perf_counter_ns()
         super().finish()
-        self.t_ns.add_blocking(time.time_ns() - t0)
+        self.t_ns.add_blocking(time.perf_counter_ns() - t0)
 
 
 class Profiling:
@@ -141,3 +151,78 @@ class Profiling:
     #     plt.eventplot(time_center, colors='blue', lineoffsets=1,
     #                   linelengths=1, linewidths=time_length, orientation='horizontal')
     #     plt.show()
+
+
+def get_context(device_id: int = None):
+    """
+
+    This function facilitates to get a context and queue pointing to a particular device.
+    :return: the context instance
+    """
+    if device_id is None:
+        context = cl.create_some_context()
+    else:  # currently only a single device is supported. If required interfac must be adjusted to accept multiple ids
+        device = get_devices()[device_id]
+        context = Context(devices=[device])
+    return context
+
+
+def get_device_id_from_env_var() -> int:
+    # add environmental variable PYOPENCL_DEVICE with 0 to select device 0 as default device
+    device_id = os.environ["PYOPENCL_DEVICE"]
+    if device_id:
+        return int(device_id)
+    else:
+        return 0
+
+
+# Convenience feature to access a global queue instance, e.g. useful to avoid passing queue into functions.
+_current_queue = None
+# If queue is requested via get_current_queue and _current_queue is None, then the default
+# device specified below is used and is set as the current queue.
+_default_device = get_device_id_from_env_var()
+
+
+def set_current_queue(queue: CommandQueue | None):
+    global _current_queue
+    _current_queue = queue
+
+
+def set_default_device(device_id: int):
+    """
+    Calling this function overrides the default device (may override what has been set with env var
+    os.environ["PYOPENCL_DEVICE"]).
+    """
+    global _default_device
+    _default_device = device_id
+
+
+def create_queue(device_id: int = None, queue_properties: QueueProperties = QueueProperties.DEFAULT,
+                 compiler_output: bool = False, context: Context = None, *args, **kwargs) -> CommandQueue:
+    """
+    A convenience function which creates a queue object.
+
+    :return: A container class with context and queue pointing to selected device.
+    """
+    if device_id is None:
+        device_id = _default_device
+    if context is None:
+        context = get_context(device_id)
+    queue = CommandQueue(context, properties=queue_properties)
+    queue.finish()
+
+    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1' if compiler_output else '0'
+    set_current_queue(queue)
+    return queue
+
+
+def get_current_queue(*args, **kwargs)->CommandQueue:
+    global _current_queue
+    if _current_queue is None:
+        logging.info(f'Created queue for device {_default_device} (get_current_queue was called first time)')
+        _current_queue = create_queue(_default_device, *args, **kwargs)
+    return _current_queue
+
+
+def get_device(device_id: int) -> cl.Device:
+    return get_devices()[device_id]

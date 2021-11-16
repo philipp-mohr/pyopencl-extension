@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from pyopencl_extension import Kernel, Global, Thread, Array, empty
+from pyopencl_extension import Kernel, Global, Array, empty
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -81,7 +81,7 @@ class Transpose:
     def __init__(self, in_buffer: Array, axes_order: Tuple[int, ...]):
         self.axes_order = axes_order
         shape_out = tuple([list(in_buffer.shape)[i] for i in axes_order])
-        self.out_buffer = empty(in_buffer.queue, shape_out, dtype=in_buffer.dtype)
+        self.out_buffer = empty(shape_out, in_buffer.dtype)
         self.in_buffer = in_buffer
         self.knl = Kernel(name='transpose',
                           args={'in_buffer': Global(self.in_buffer, read_only=True),
@@ -93,7 +93,7 @@ class Transpose:
                                """],
                           replacements={'i_in': self._command_for_input_address_computation(),
                                         'i_out': self._command_for_output_address_computation()},
-                          global_size=self.in_buffer.shape).compile(thread=Thread.from_buffer(in_buffer))
+                          global_size=self.in_buffer.shape).compile()
 
     def __call__(self, *args, **kwargs):
         self.knl()

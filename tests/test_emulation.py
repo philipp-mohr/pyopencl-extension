@@ -5,7 +5,7 @@ from pyopencl import Program as pyopencl_program
 from pytest import mark
 
 from pyopencl_extension import emulation, use_existing_file_for_emulation, Local, Scalar, \
-    LocalArray, Types, Kernel, Global, Function, Program, Private, zeros, zeros_like, to_device
+    LocalArray, Types, Kernel, Global, Function, Program, Private, zeros, zeros_like, to_device, get_current_queue
 from pyopencl_extension.emulation import unparse_c_code_to_python, create_py_file_and_load_module
 
 path_py_cl = Path(__file__).parent.joinpath('py_cl_kernels')
@@ -39,19 +39,19 @@ __kernel void some_operation(__global  short *buff,
 """
 
 
-def test_debug_kernel(thread):
-    buff_cl = zeros(thread.queue, (10, 1), Types.short)
+def test_debug_kernel():
+    buff_cl = zeros((10, 1), Types.short)
     # compute result with opencl
-    program = pyopencl_program(thread.context, str(rendered_template)).build()
+    queue = get_current_queue()
+    program = pyopencl_program(queue.context, str(rendered_template)).build()
     some_operation = program.all_kernels()[0]
     # some_operation(init.queue, buff_cl.shape, None,
     #                buff_cl.data, np.dtype(ClTypes.short).type(3))
     # alternative:
     some_operation.set_scalar_arg_dtypes([None, Types.short])
-    some_operation(thread.queue, buff_cl.shape, None,
-                   buff_cl.data, 3)
+    some_operation(queue, buff_cl.shape, None, buff_cl.data, 3)
 
-    buff_py = zeros(thread.queue, (10, 1), Types.short)
+    buff_py = zeros((10, 1), Types.short)
     code_py = unparse_c_code_to_python(rendered_template)
     module = create_py_file_and_load_module(code_py, str(path_py_cl.joinpath('debug_component')))
 
@@ -83,16 +83,17 @@ __kernel void some_operation(__global  cfloat_t *buff,
 """
 
 
-def test_debug_kernel_with_complex_numbers(thread):
-    buff_cl = zeros(thread.queue, (10, 1), Types.cfloat)
+def test_debug_kernel_with_complex_numbers():
+    buff_cl = zeros((10, 1), Types.cfloat)
+    queue = get_current_queue()
     # compute result with opencl
-    program = pyopencl_program(thread.context, str(rendered_template_cplx_float)).build()
+    program = pyopencl_program(queue.context, str(rendered_template_cplx_float)).build()
     some_operation = program.all_kernels()[0]
     # some_operation.set_scalar_arg_dtypes([None, ClTypes.cfloat])
-    some_operation(thread.queue, buff_cl.shape, None,
+    some_operation(queue, buff_cl.shape, None,
                    buff_cl.data, np.dtype(Types.cfloat).type(3 + 1j))
 
-    buff_py = zeros(thread.queue, (10, 1), Types.cfloat)
+    buff_py = zeros((10, 1), Types.cfloat)
     code_py = unparse_c_code_to_python(rendered_template_cplx_float)
     module = create_py_file_and_load_module(code_py, str(path_py_cl.joinpath('debug_component_complex_numbers')))
 
@@ -123,17 +124,18 @@ __kernel void some_operation(__global  cdouble_t *buff,
 """
 
 
-def test_debug_kernel_with_complex_numbers_double(thread):
+def test_debug_kernel_with_complex_numbers_double():
     cplx_t = Types.cdouble
-    buff_cl = zeros(thread.queue, (10, 1), cplx_t)
+    buff_cl = zeros((10, 1), cplx_t)
+    queue = get_current_queue()
     # compute result with opencl
-    program = pyopencl_program(thread.context, str(rendered_template_cplx_double)).build()
+    program = pyopencl_program(queue.context, str(rendered_template_cplx_double)).build()
     some_operation = program.all_kernels()[0]
     # some_operation.set_scalar_arg_dtypes([None, ClTypes.cfloat])
-    some_operation(thread.queue, buff_cl.shape, None,
+    some_operation(queue, buff_cl.shape, None,
                    buff_cl.data, np.dtype(cplx_t).type(3 + 1j))
 
-    buff_py = zeros(thread.queue, (10, 1), cplx_t)
+    buff_py = zeros((10, 1), cplx_t)
     code_py = unparse_c_code_to_python(rendered_template_cplx_float)
     module = create_py_file_and_load_module(code_py, str(path_py_cl.joinpath('debug_component_complex_numbers_double')))
 
@@ -148,8 +150,8 @@ def test_debug_try_python_conversion_if_c_compilation_fails():
 
 
 # from here on all tests depend on framework
-def test_debug_c_code_with_unary_increment_operation_inside_of_array(thread):
-    buff_cl = zeros(thread.queue, (6, 1), Types.short)
+def test_debug_c_code_with_unary_increment_operation_inside_of_array():
+    buff_cl = zeros((6, 1), Types.short)
     knl = Kernel('knl',
                  {'buff': Global(buff_cl)},
                  """
@@ -168,17 +170,17 @@ def test_debug_c_code_with_unary_increment_operation_inside_of_array(thread):
         buff[5] = count;
     """,
                  global_size=(1,))
-    compiled_cl = knl.compile(thread, emulate=False)
+    compiled_cl = knl.compile(emulate=False)
     compiled_cl(buff=buff_cl)
-    buff_py = zeros(thread.queue, (6, 1), Types.short)
-    compiled_py = knl.compile(thread, emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    buff_py = zeros((6, 1), Types.short)
+    compiled_py = knl.compile(emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     compiled_py(buff=buff_py)
     assert np.all(buff_py.get() == buff_cl.get())
 
 
-def test_access_complex_variable(thread):
+def test_access_complex_variable():
     buff = np.array([0.5]).astype(Types.cfloat)
-    buff_in = to_device(thread.queue, buff)
+    buff_in = to_device(buff)
     buff_out = zeros_like(buff_in)
     knl = Kernel('knl',
                  {'inp': Global(buff_in),
@@ -187,18 +189,18 @@ def test_access_complex_variable(thread):
         out[get_global_id(0)].real = inp[get_global_id(0)].real; 
     """,
                  global_size=(1,))
-    compiled_cl = knl.compile(thread, emulate=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_cl = knl.compile(emulate=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     compiled_cl()
     buff_out_py = zeros_like(buff_in)
-    compiled_py = knl.compile(thread, emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_py = knl.compile(emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     # out[0] = complex64(inp[0].real+out[0].imag*1j) instead of out[0].real=inp[0].real
     compiled_py(out=buff_out_py)
     assert np.all(buff_out.get() == buff_out_py.get())
 
 
-def test_debug_kernel_with_barriers(thread):
+def test_debug_kernel_with_barriers():
     buff = np.zeros(shape=(2, 4)).astype(Types.int)
-    mem_buffer = to_device(thread.queue, buff)
+    mem_buffer = to_device(buff)
     knl = Kernel('knl',
                  {'mem_glob': Global(mem_buffer)},
                  """
@@ -213,16 +215,16 @@ def test_debug_kernel_with_barriers(thread):
     """,
                  global_size=(2, 4),
                  local_size=(1, 2))
-    compiled_cl = knl.compile(thread, emulate=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_cl = knl.compile(emulate=False, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     compiled_cl()
     mem_buffer_py = zeros_like(mem_buffer)
-    compiled_py = knl.compile(thread, emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
+    compiled_py = knl.compile(emulate=True, file=Path(__file__).parent.joinpath('py_cl_kernels/knl'))
     # out[0] = complex64(inp[0].real+out[0].imag*1j) instead of out[0].real=inp[0].real
     compiled_py(mem_glob=mem_buffer_py)
     assert np.all(mem_buffer.get() == mem_buffer_py.get())
 
 
-def test_number_overflow(thread):
+def test_number_overflow():
     inp1 = np.array([127, 10, -128]).astype(Types.char)
     inp2 = np.array([127, 10, -128]).astype(Types.char)
     knl = Kernel('knl',
@@ -240,8 +242,8 @@ def test_number_overflow(thread):
         out2[get_global_id(0)] = b; 
     """,
                  global_size=inp1.shape)
-    knl_cl = knl.compile(thread)
-    knl_py = knl.compile(thread, emulate=True)
+    knl_cl = knl.compile()
+    knl_py = knl.compile(emulate=True)
     knl_cl()
     res_cl = knl_cl.out1.get(), knl_cl.out2.get()
     knl_py()
@@ -250,12 +252,12 @@ def test_number_overflow(thread):
 
 
 # implement pointer arithmetics with pointer wrapper class for every variable
-def test_pointer_arithmetics(thread):
+def test_pointer_arithmetics():
     # todo:
-    # Problem: abstract syntax tree does not distiguish if an identifier is a pointer or a variable.
+    # Problem: abstract syntax tree does not distinguish if an identifier is a pointer or a variable.
     # E.g. if incrementing the pointer to an array a (a=a+1) in Python this would increment all values in
     # the underlying array. However if
-    data = np.array([0]).astype(Types.char)
+    data = np.array([0, 0]).astype(Types.char)
     knl = Kernel('knl_pointer_arithmetics',
                  {'data': data},
                  """
@@ -264,11 +266,17 @@ def test_pointer_arithmetics(thread):
         a[1] = 1;
         char* b = a + 1;
         data[0] = b[0];
+        
+        char* c = a;
+        c += 1;
+        a[1] = 3;
+        data[1] = c[0];
+        
     """,
                  global_size=data.shape)
-    knl_cl = knl.compile(thread)
+    knl_cl = knl.compile()
     emulation.use_existing_file_for_emulation(False)
-    knl_py = knl.compile(thread, emulate=True)
+    knl_py = knl.compile(emulate=True)
     knl_cl()
     res_cl = knl_cl.data.get()
     knl_py()
@@ -277,7 +285,7 @@ def test_pointer_arithmetics(thread):
 
 
 @mark.parametrize('dtype', [Types.char, Types.char4], ids=['scalar type', 'vector type'])
-def test_pointer_increment(thread, dtype):
+def test_pointer_increment(dtype):
     # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
     data = np.array([0]).astype(dtype)
     func = Function('func',
@@ -296,16 +304,16 @@ def test_pointer_increment(thread, dtype):
                      p2 = a;
                      data[0] = func(p2+3); """, global_size=data.shape, type_defs={'dtype': dtype})
     prog = Program(functions=[func], kernels=[knl])
-    knl_cl = prog.compile(thread).knl_pointer_arithmetics
+    knl_cl = prog.compile().knl_pointer_arithmetics
     knl_cl()
     res_cl = knl_cl.data.get()
-    knl_py = prog.compile(thread, emulate=True).knl_pointer_arithmetics
+    knl_py = prog.compile(emulate=True).knl_pointer_arithmetics
     knl_py()
     res_py = knl_cl.data.get()
     assert np.all(res_cl[0] == res_py[0])
 
 
-def test_bit_shift(thread):  # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
+def test_bit_shift():  # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
     data = np.array([0, 0, 0, 0]).astype(Types.char)
     knl = Kernel('knl_bit_packing',
                  {'data': data},
@@ -318,10 +326,10 @@ def test_bit_shift(thread):  # todo use https://numpy.org/doc/stable/reference/g
     """,
                  global_size=data.shape)
     prog = Program(kernels=[knl])
-    knl_cl = prog.compile(thread).knl_bit_packing
-    knl_py = prog.compile(thread, emulate=True).knl_bit_packing
+    knl_cl = prog.compile().knl_bit_packing
+    knl_py = prog.compile(emulate=True).knl_bit_packing
     knl_cl()
-    thread.queue.finish()
+    get_current_queue().finish()
     res_cl = knl_cl.data.get()
     knl_py()
     res_py = knl_cl.data.get()
@@ -334,9 +342,9 @@ def test_bit_shift(thread):  # todo use https://numpy.org/doc/stable/reference/g
                              'for(int i=0; i <=10; i++)',
                              'for(int i=0; i !=10; i++)',
                              'for(int i=0; i <10; i++)'])
-def test_for_loop(thread, header):
+def test_for_loop(header):
     def eval_code(emulate=False):
-        data = to_device(thread.queue, np.array([0]).astype(Types.char))
+        data = to_device(np.array([0]).astype(Types.char))
         knl = Kernel('knl_test_for_loop',
                      {'data': Global(data)},
                      """
@@ -345,16 +353,16 @@ def test_for_loop(thread, header):
             }
         """,
                      replacements={'header': header},
-                     global_size=data.shape).compile(thread, emulate=emulate)
+                     global_size=data.shape).compile(emulate=emulate)
         knl()
-        thread.queue.finish()
+        get_current_queue().finish()
         res = knl.data.get()
         return res
 
     assert np.all(eval_code(False) == eval_code(True))
 
 
-def test_vector_types(thread):  # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
+def test_vector_types():  # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
     data = np.zeros((10,)).astype(Types.char2)
     knl = Kernel('knl_vector_types',
                  {'data': data},
@@ -369,17 +377,17 @@ def test_vector_types(thread):  # todo use https://numpy.org/doc/stable/referenc
         data[5] = a / b;
     """,
                  global_size=data.shape)
-    knl_cl = knl.compile(thread)
-    knl_py = knl.compile(thread, emulate=True)
+    knl_cl = knl.compile()
+    knl_py = knl.compile(emulate=True)
     knl_cl()
-    thread.queue.finish()
+    get_current_queue().finish()
     res_cl = knl_cl.data.get()
     knl_py()
     res_py = knl_py.data.get()
     assert np.all(res_cl == res_py)
 
 
-def test_nested_local_barrier_inside_function(thread):
+def test_nested_local_barrier_inside_function():
     func_nested = Function('nested_func',
                            {
                                'ary': Global(Types.int),
@@ -397,7 +405,7 @@ def test_nested_local_barrier_inside_function(thread):
                """,
                            returns=Types.int)
 
-    ary = to_device(thread.queue, (ary_np := np.array([1, 2]).astype(Types.int)))
+    ary = to_device((ary_np := np.array([1, 2]).astype(Types.int)))
     use_existing_file_for_emulation(False)
     knl = Kernel('some_knl',
                  {
@@ -408,22 +416,22 @@ def test_nested_local_barrier_inside_function(thread):
                 ary[get_global_id(0)] = parent(ary, shared);
                    """, global_size=ary.shape)
     prog = Program([func_nested, func_parent], [knl])
-    prog_py = prog.compile(thread, emulate=True)
-    prog_cl = prog.compile(thread, emulate=False)
+    prog_py = prog.compile(emulate=True)
+    prog_cl = prog.compile(emulate=False)
     prog_py.some_knl()
 
     ary_py = ary.get()
     ary.set(ary_np)
     prog_cl.some_knl()
     ary_cl = ary.get()
-    thread.queue.finish()
+    get_current_queue().finish()
     assert np.allclose(ary_py, np.array([2, 1]))
     assert np.allclose(ary_py, ary_cl)
 
 
-def test_macro_with_arguments(thread):
+def test_macro_with_arguments():
     defines = {'FUNC(a,b,c)': '{ int tmp = c(a-b); a += b + tmp; }'}  # this is a macro with arguments
-    ary = zeros(thread.queue, (2,), Types.int)
+    ary = zeros((2,), Types.int)
     func_add_two = Function('add_two',
                             {'a': Scalar(Types.int)},
                             'return a + 2;', returns=Types.int)
@@ -437,7 +445,7 @@ def test_macro_with_arguments(thread):
                """,
                  defines=defines,
                  global_size=ary.shape)
-    Program([func_add_two], [knl]).compile(thread).knl_macro_func()
+    Program([func_add_two], [knl]).compile().knl_macro_func()
     assert np.allclose(ary.get(), np.array([4, 4]).astype(ary.dtype))
 
 
@@ -445,8 +453,8 @@ def test_macro_with_arguments(thread):
 # -ternary operator (e.g. x=cond ? a:b;)
 # - ...
 # Testing with one large integration test reduces test time compared to multiple individual tests.
-def test_different_c_operations_at_once(thread):
-    ary = zeros(thread.queue, (2,), Types.int)
+def test_different_c_operations_at_once():
+    ary = zeros((2,), Types.int)
     knl = Kernel('knl_multiple_c_operations',
                  {'ary': Global(ary)},
                  """int a = 1;
@@ -455,7 +463,7 @@ def test_different_c_operations_at_once(thread):
                     dtype *ptr1; // test pointer definition 
                     global dtype *ptr2; // test global pointer definition 
                     ary[get_global_id(0)] = a>get_global_id(0) ? a : b;
-                 """, global_size=ary.shape, type_defs={'dtype': ary.dtype}).compile(thread, emulate=True)
+                 """, global_size=ary.shape, type_defs={'dtype': ary.dtype}).compile(emulate=True)
     knl()
     assert np.allclose(ary.get(), np.array([1, 2]).astype(ary.dtype))
 
@@ -464,9 +472,9 @@ def test_different_c_operations_at_once(thread):
 # http://developer.amd.com/wordpress/media/2013/12/AMD_OpenCL_Programming_User_Guide2.pdf
 # http://developer.amd.com/wordpress/media/2013/01/Introduction_to_OpenCL_Programming-Training_Guide-201005.pdf
 @mark.parametrize(argnames='data_t', argvalues=[Types.short, Types.double])
-def test_local_memory_as_kernel_argument(thread, data_t):
+def test_local_memory_as_kernel_argument(data_t):
     def run(emulate=False):
-        ary = to_device(thread.queue, np.ones(10).astype(data_t))
+        ary = to_device(np.ones(10).astype(data_t))
         local_mem = LocalArray(dtype=data_t, shape=5)  # 5 is to to test that local array argument is changed
         knl = Kernel('knl_local_arg',
                      {'ary': Global(ary), 'local_mem': local_mem},
@@ -482,7 +490,7 @@ def test_local_memory_as_kernel_argument(thread, data_t):
                      global_size=ary.shape,
                      local_size=(5,))
         local_mem = LocalArray(dtype=data_t, shape=5)
-        knl.compile(thread, emulate=emulate)(local_mem=local_mem)
+        knl.compile(emulate=emulate)(local_mem=local_mem)
         return ary.get()
 
     ary_cl = run(emulate=False)
@@ -504,12 +512,12 @@ def test_barrier_global_local_mem_fence():
                                       ('abs_diff', Types.int),
                                       ('max', Types.int),
                                       ])
-def test_two_input_integer_functions(thread, name, dtype):
-    a_cl = to_device(thread.queue, np.ones((10,), dtype))
-    a_emulation = to_device(thread.queue, np.ones((10,), dtype))
+def test_two_input_integer_functions(name, dtype):
+    a_cl = to_device(np.ones((10,), dtype))
+    a_emulation = to_device(np.ones((10,), dtype))
     knl = Kernel(f'knl_{name}',
                  {'a': Global(a_cl), 'num': Scalar(dtype(0))},
                  f'a[get_global_id(0)]={name}(a[get_global_id(0)], num);', global_size=a_cl.shape)
-    knl.compile(thread)(a=a_cl)
-    knl.compile(thread, emulate=True)(a=a_emulation)
+    knl.compile()(a=a_cl)
+    knl.compile(emulate=True)(a=a_emulation)
     assert np.all(a_cl.get() == a_emulation.get())

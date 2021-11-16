@@ -4,7 +4,7 @@ from typing import Tuple, Union
 import numpy as np
 from pytest import mark
 
-from pyopencl_extension import Thread, Helpers, Kernel, Program, Global, Scalar, Types, Array, empty, zeros, to_device
+from pyopencl_extension import Helpers, Kernel, Program, Global, Scalar, Types, Array, empty, zeros, to_device
 
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
@@ -106,7 +106,6 @@ class CopyArrayRegion:
         _region_in_original = copy(region_in)  # for debug purposes
         _region_out_original = copy(region_out)  # for debug purposes
 
-        queue = in_buffer.queue
         if region_in is not None:
             region_in = self._deal_with_incomplete_regions(region_in, in_buffer)
 
@@ -131,7 +130,7 @@ class CopyArrayRegion:
 
         if out_buffer is None and region_out is None:
             shape = [ax[1] - ax[0] for ax in self.region_in]
-            self.out_buffer = empty(queue, tuple(shape), dtype=self.in_buffer.dtype)
+            self.out_buffer = empty(tuple(shape), dtype=self.in_buffer.dtype)
             self.region_out = [(0, i, 1) for i in shape]  # (tuple([0]*len(shape)),shape)
         elif out_buffer is not None and region_out is not None:
             self.out_buffer = out_buffer
@@ -147,16 +146,15 @@ class CopyArrayRegion:
 
         self.copy_array_region = Kernel(name='copy_array_region',
                                         args={'in_buffer': Global(self.in_buffer, read_only=True),
-                                                'out_buffer': Global(self.out_buffer, )},
+                                              'out_buffer': Global(self.out_buffer, )},
                                         body=["""
                                   int addr_in = ${command_addr_in};
                                   int addr_out = ${command_addr_out};
                                   out_buffer[addr_out]=in_buffer[addr_in];
                                   """],
                                         replacements={'command_addr_in': self._command_for_addr_in_computation(),
-                                                        'command_addr_out': self._command_for_addr_out_computation()},
-                                        global_size=self.shape_region_out).compile(
-            thread=Thread.from_buffer(in_buffer))
+                                                      'command_addr_out': self._command_for_addr_out_computation()},
+                                        global_size=self.shape_region_out).compile()
 
     def __call__(self, *args, **kwargs):
         self.copy_array_region()
@@ -214,12 +212,12 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
 
     knl = Kernel('set_cl_array',
                  {'target': Global(array),
-                    'target_shape': Global(target_shape),
-                    'offset_target': Global(offset_target),
-                    'source': arg_source,
-                    'source_shape': Global(source_shape),
-                    'source_n_dims': Scalar(Types.int)},
-                   """
+                  'target_shape': Global(target_shape),
+                  'offset_target': Global(offset_target),
+                  'source': arg_source,
+                  'source_shape': Global(source_shape),
+                  'source_n_dims': Scalar(Types.int)},
+                 """
    // id_source = get_global_id(0)
    // id_source points to element of array source which replaces element with id_target in array target.
    // we need to compute id_target from id_source:
@@ -248,9 +246,9 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
    target[id_target] = ${source};
                    """,
                  replacements={'addr': Helpers.command_compute_address(array.ndim),
-                                 'source': code_source},
+                               'source': code_source},
                  global_size=(global_size,)
-                 ).compile(Thread.from_buffer(array), emulate=False)
+                 ).compile(array.context, emulate=False)
     knl(source=source, source_n_dims=source_n_dims)
 
 
@@ -260,8 +258,7 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
                         [4, -1, 0, 3],
                         [0, 10, 0, 3]])
 def test_cl_set(s):
-    thread = Thread()
-    ary = zeros(thread.queue, (10, 3), Types.double)
+    ary = zeros((10, 3), Types.double)
     ary_np = ary.get()
     val = 2
     # ClSet(ary)[:, 2:3] = val
@@ -272,8 +269,7 @@ def test_cl_set(s):
 
 
 def test_cl_set_out_of_bounds():
-    thread = Thread()
-    ary = zeros(thread.queue, (10, 3), Types.double)
+    ary = zeros((10, 3), Types.double)
     val = 2
     try:
         cl_set(ary, Slice[:100, :], val)
@@ -283,8 +279,7 @@ def test_cl_set_out_of_bounds():
 
 def test_cl_set_many_dimensions():
     s = [0, 1, 2, 3, 0, 1]
-    thread = Thread()
-    ary = zeros(thread.queue, (10, 3, 4), Types.double)
+    ary = zeros((10, 3, 4), Types.double)
     ary_np = ary.get()
     val = 2
     # ClSet(ary)[:, 2:3] = val
@@ -296,21 +291,20 @@ def test_cl_set_many_dimensions():
 class TypeConverter:
     def __init__(self, in_buffer: Array, out_buffer_dtype: np.dtype):
         self.in_buffer = in_buffer
-        self.out_buffer = empty(in_buffer.queue, in_buffer.shape, dtype=out_buffer_dtype)
+        self.out_buffer = empty(in_buffer.shape, out_buffer_dtype, in_buffer.queue)
         knl = Kernel(name='type',
                      args={'in_buffer': Global(self.in_buffer, read_only=True),
-                             'out_buffer': Global(self.out_buffer)},
+                           'out_buffer': Global(self.out_buffer)},
                      body=["""
                                    int addr_in = ${command_addr_in};
                                    int addr_out = ${command_addr_out};
                                    out_buffer[addr_out]=convert_${buff_out_t}(in_buffer[addr_in]);
                                    """],
                      replacements={'command_addr_in': Helpers.command_compute_address(self.in_buffer.ndim),
-                                     'command_addr_out': Helpers.command_compute_address(self.out_buffer.ndim),
-                                     'buff_out_t': c_name_from_dtype(self.out_buffer.dtype)},
+                                   'command_addr_out': Helpers.command_compute_address(self.out_buffer.ndim),
+                                   'buff_out_t': c_name_from_dtype(self.out_buffer.dtype)},
                      global_size=self.in_buffer.shape)
-        thread = Thread(queue=in_buffer.queue, context=in_buffer.context)
-        self.program = Program(kernels=[knl]).compile(thread=thread, emulate=False)
+        self.program = Program(kernels=[knl]).compile(context=in_buffer.context, emulate=False)
 
     def __call__(self):
         self.program.type()

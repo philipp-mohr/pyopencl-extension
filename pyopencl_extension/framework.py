@@ -3,6 +3,7 @@ import re
 import time
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Union, Tuple, List, Dict, Callable
@@ -17,7 +18,8 @@ from pyopencl.array import Array as ClArray
 
 from pyopencl_extension import CommandQueue, Array, to_device
 from pyopencl_extension.helpers.general import write_string_to_file
-from pyopencl_extension.modifications_pyopencl.command_queue import QueueProperties
+from pyopencl_extension.modifications_pyopencl.command_queue import QueueProperties, get_current_queue
+from pyopencl_extension.modifications_pyopencl.context import Context, get_devices
 from pyopencl_extension.types.auto_gen.cl_types import ClTypesScalar
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
     get_vec_size, Types, number_vec_elements_of_cl_type, VEC_INDICES
@@ -131,112 +133,6 @@ def preamble_generic_type_operations(number_format: str = 'real', precision: str
         raise NotImplementedError()
 
 
-def get_devices():
-    """
-    On a computer often multiple chips exist to execute OpenCl code, like Intel, AMD or Nvidia GPUs or FPGAs.
-    This function return a list of all available devices.
-    """
-    platforms = cl.get_platforms()
-    devices = [d for p in platforms for d in p.get_devices(device_type=cl.device_type.GPU)]
-    # devices = [platform[device[0]].get_devices(device_type=cl.device_type.GPU)[device[1]]][0]
-    return devices
-
-
-def get_context(device_id: int = None):
-    """
-
-    This function facilitates to get a context and queue pointing to a particular device.
-    :return: the context instance
-    """
-    if device_id is None:
-        context = cl.create_some_context()
-    else:  # currently only a single device is supported. If required interfac must be adjusted to accept multiple ids
-        device = get_devices()[device_id]
-        context = cl.Context(devices=[device])
-    return context
-
-
-def get_device_id_from_env_var() -> int:
-    # add environmental variable PYOPENCL_DEVICE with 0,0 to select vendor 0 device 0 as default device
-    vendor, device = tuple([int(part) for part in os.environ["PYOPENCL_DEVICE"].split(',')])
-    platforms = cl.get_platforms()
-    device = [platforms[vendor].get_devices(device_type=cl.device_type.GPU)[device]][0]
-    devices = get_devices()
-    matches = np.where(np.array([d.int_ptr for d in devices]) == device.int_ptr)
-    if not len(matches) == 1:
-        raise ValueError('int_ptr is expected to be unique identifier for device. '
-                         'Change current implementation to fix issue')
-    return matches[0][0]
-
-
-@dataclass
-class Thread:
-    context: cl.Context = None
-    queue: CommandQueue = None
-    b_compiler_output: bool = True
-    # https://stackoverflow.com/questions/29068229/is-there-a-way-to-profile-an-opencl-or-a-pyopencl-program
-    profile: bool = False
-    queue_properties: int = QueueProperties.DEFAULT
-
-    @property
-    def device(self) -> cl.Device:
-        return self.context.devices[0]
-
-    def __hash__(self) -> int:
-        return hash(f'{self.context.int_ptr}{self.queue.int_ptr}')
-
-    @staticmethod
-    def from_buffer(buffer: TypesClArray) -> 'Thread':
-        return Thread(queue=buffer.queue, context=buffer.context)
-
-    def __post_init__(self):
-        if self.context is None:
-            try:
-                device = get_device_id_from_env_var()
-                self.context = get_context(device)  # fallback = cl.create_some_context()
-            except KeyError as err:
-                self.context = cl.create_some_context()
-        if self.queue is None:
-            if self.profile:
-                self.queue = CommandQueue(self.context, properties=QueueProperties.PROFILING_ENABLE)
-            else:
-                self.queue = CommandQueue(self.context, properties=self.queue_properties)
-        self.queue.finish()
-        if self.b_compiler_output:
-            os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
-        else:
-            os.environ['PYOPENCL_COMPILER_OUTPUT'] = '0'
-        set_current_thread(self)
-
-
-def get_device(device_id: int) -> cl.Device:
-    return get_devices()[device_id]
-
-
-def get_thread(device_id: int, profile=False) -> Thread:
-    """
-    :return: A container class with context and queue pointing to selected device.
-    """
-    context = get_context(device_id)
-    return Thread(context, profile=profile)
-
-
-# Convenience feature to access a global thread instance, e.g. useful to avoid passing thread instance into functions.
-_current_thread = None
-
-
-def set_current_thread(thread: Thread):
-    global _current_thread
-    _current_thread = thread
-
-
-def get_current_thread():
-    global _current_thread
-    if _current_thread is None:
-        _current_thread = get_thread(0)
-    return _current_thread
-
-
 def catch_invalid_argument_name(name: str):
     """
     E.g. when using certain argument names like 'channel' the opencl compiler throws a compilation error, probably
@@ -252,8 +148,7 @@ def catch_invalid_argument_name(name: str):
         return name
 
 
-@dataclass
-class OrderInMemory:
+class OrderInMemory(Enum):
     C_CONTIGUOUS: str = 'c_contiguous'
     F_CONTIGUOUS: str = 'f_contiguous'
 
@@ -315,7 +210,7 @@ class Private(Pointer):
 class Local(Pointer):
     dtype: Union[np.dtype, LocalArray] = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__local')
-    order_in_memory: str = OrderInMemory.C_CONTIGUOUS
+    order_in_memory: OrderInMemory = OrderInMemory.C_CONTIGUOUS
     default: cl.LocalMemory = field(init=False, default=None)
 
     def __post_init__(self):
@@ -328,7 +223,7 @@ class Local(Pointer):
 class Global(Pointer):
     dtype: Union[np.dtype, TypesClArray] = field(default=Types.int)
     read_only: bool = False  # adds 'const' qualifier to let compiler know that global array is never written
-    order_in_memory: str = OrderInMemory.C_CONTIGUOUS
+    order_in_memory: OrderInMemory = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__global')
     default: TypesClArray = field(init=False, default='')
 
@@ -448,7 +343,7 @@ KernelGridType = Union[Tuple[int], Tuple[int, int], Tuple[int, int, int]]
 
 class Compilable:
     @abstractmethod
-    def compile(self, thread: Thread = None, emulate: bool = False):
+    def compile(self, context: Context = None, emulate: bool = False):
         pass
 
     @staticmethod
@@ -458,10 +353,9 @@ class Compilable:
 
 @dataclass
 class Kernel(FunctionBase, Compilable):
-    def compile(self, thread=None, emulate: bool = False, file='$default_path'):
-        Program(kernels=[self]).compile(thread=thread, emulate=emulate, file=file)
+    def compile(self, context: Context = None, emulate: bool = False, file='$default_path'):
+        Program(kernels=[self]).compile(context=context, emulate=emulate, file=file)
         return self.callable_kernel
-        # return compile_cl_kernel(self, thread, emulate=emulate, file=file)
 
     global_size: KernelGridType = None
     local_size: KernelGridType = None
@@ -515,10 +409,10 @@ class Program(Compilable):
     Models an OpenCl Program containing functions or kernels.
     """
 
-    def compile(self, thread: Thread = None, emulate: bool = False,
+    def compile(self, context: Context = None, emulate: bool = False,
                 file: str = '$default_path') -> 'ProgramContainer':
 
-        return compile_cl_program(self, thread, emulate, file)
+        return compile_cl_program(self, context, emulate, file)
 
     functions: List[Function] = field(default_factory=lambda: [])
     kernels: List[Kernel] = field(default_factory=lambda: [])
@@ -600,7 +494,7 @@ class Program(Compilable):
         return '{}\n\n{}\n\n{}\n\n{}\n\n'.format(preamble_complex, defines, type_defs, functions)
 
 
-def build_for_device(context: cl.Context, template_to_be_compiled: str, file: str = None) -> cl.Program:
+def build_for_device(context: Context, template_to_be_compiled: str, file: str = None) -> cl.Program:
     if file is not None:
         write_string_to_file(template_to_be_compiled, file + '.cl', b_logging=False)
     try:
@@ -639,18 +533,30 @@ class CallableKernel(ABC):
             return scalar.astype(arg_model.dtype)  # converts to vector type
 
     @staticmethod
-    def _prepare_arguments(knl: Kernel, **kwargs):
+    def _prepare_arguments(queue: CommandQueue, knl: Kernel, **kwargs):
         global_size = kwargs.pop('global_size', None)
         local_size = kwargs.pop('local_size', None)
-        if global_size is None:
-            global_size = knl.global_size
-        if local_size is None:
-            local_size = knl.local_size
+        global_size = knl.global_size if global_size is None else global_size
+        local_size = knl.local_size if local_size is None else local_size
+
         supported_kws = [k for k in knl.args.keys()]
         kw_not_in_kernel_arguments = [kw for kw in kwargs if kw not in supported_kws]
         if len(kw_not_in_kernel_arguments) > 0:
             raise ValueError(
                 f'keyword argument {kw_not_in_kernel_arguments} does not exist in kernel argument list {supported_kws}')
+
+        # If kernel arguments are of type np.ndarray they are converted to cl arrays here
+        # This is done here, since thq queue is available at this point for sure.
+        # todo: deal with case if kwarg is numpy argument
+        def deal_with_np_arrays(v):
+            if isinstance(v, Global) and isinstance(v.default, np.ndarray):
+                v.default = to_device(ary=v.default, queue=queue)
+                return v
+            else:
+                return v
+
+        knl.args = {k: deal_with_np_arrays(v) for k, v in knl.args.items()}
+
         # set default arguments. Looping over kernel model forces correct order of arguments
         args_call = [kwargs.pop(key, value.default if isinstance(value, (Constant, Global, Scalar, Local)) else None)
                      for key, value in knl.args.items()]
@@ -713,9 +619,9 @@ class CallableKernelEmulation(CallableKernel):
                  local_size: KernelGridType = None,
                  **kwargs: Union[TypesClArray, object]) -> cl.Event:
         # e.g. if two kernels of a program shall run concurrently, this can be enable by passing another queue here
-        if 'queue' in kwargs:  # currently queue kwarg is not considered in emulation
-            _ = kwargs.pop('queue')
-        global_size, local_size, args = self._prepare_arguments(self.kernel_model, global_size=global_size,
+        queue = kwargs.pop('queue', get_current_queue())
+        global_size, local_size, args = self._prepare_arguments(queue=queue, knl=self.kernel_model,
+                                                                global_size=global_size,
                                                                 local_size=local_size, **kwargs)
         self.function(global_size, local_size, *args)
         # create user event with context retrieved from first arg of type Array
@@ -727,7 +633,6 @@ class CallableKernelEmulation(CallableKernel):
 @dataclass
 class CallableKernelDevice(CallableKernel):
     compiled: cl.Kernel
-    queue: CommandQueue
 
     @staticmethod
     def check_local_size_not_exceeding_device_limits(device: Device, local_size):
@@ -742,11 +647,10 @@ class CallableKernelDevice(CallableKernel):
                  local_size: KernelGridType = None,
                  **kwargs) -> cl.Event:
         # e.g. if two kernels of a program shall run concurrently, this can be enable by passing another queue here
-        if 'queue' in kwargs:
-            queue = kwargs.pop('queue')
-        else:
-            queue = self.queue
-        global_size, local_size, args = self._prepare_arguments(self.kernel_model, global_size=global_size,
+        queue = kwargs.pop('queue', get_current_queue())
+        assert self.compiled.context.int_ptr == queue.context.int_ptr
+        global_size, local_size, args = self._prepare_arguments(queue=queue, knl=self.kernel_model,
+                                                                global_size=global_size,
                                                                 local_size=local_size, **kwargs)
         self.check_local_size_not_exceeding_device_limits(queue.device, local_size)
         # extract buffer from cl arrays separate, since in emulation we need cl arrays
@@ -765,7 +669,7 @@ class ProgramContainer:
     """
     program_model: Program
     file: str
-    init: Thread
+    init: CommandQueue
     callable_kernels: Dict[str, Union[CallableKernelEmulation, CallableKernelDevice]] = None
 
     def __getattr__(self, name) -> CallableKernel:
@@ -781,18 +685,16 @@ class MemoizeKernelFunctions:
         self.f = f
         self.memo = {}
 
-    def __call__(self, program_model: Program, thread: Thread, file: str = None):
+    def __call__(self, program_model: Program, context: Context, file: str = None):
         # body = ''.join(program_model.rendered_template)
-        _id = hash(f'{hash(thread)}{hash(program_model)}')
+        _id = hash(f'{hash(context)}{hash(program_model)}')
         if _id not in self.memo:
-            self.memo[_id] = self.f(program_model, thread, file)
+            self.memo[_id] = self.f(program_model, context, file)
         return self.memo[_id]
 
 
 @MemoizeKernelFunctions
-def compile_cl_program_device(program_model: Program, thread: Thread = None, file: str = None) -> Dict[str, Kernel]:
-    context = thread.context
-    queue = thread.queue
+def compile_cl_program_device(program_model: Program, context: Context = None, file: str = None) -> Dict[str, Kernel]:
     code_cl = program_model.rendered_template
     program = build_for_device(context, code_cl, file)
     kernels_model = program_model.kernels
@@ -807,8 +709,8 @@ def compile_cl_program_device(program_model: Program, thread: Thread = None, fil
 
 
 @MemoizeKernelFunctions
-def compile_cl_program_emulation(program_model: Program, thread: Thread, file: str = None) -> Dict[str,
-                                                                                                   Callable]:
+def compile_cl_program_emulation(program_model: Program, context: Context, file: str = None,
+                                 *args, **kwargs) -> Dict[str, Callable]:
     code_py = unparse_c_code_to_python(code_c=program_model.rendered_template)
     module = create_py_file_and_load_module(code_py, file)
     kernels_model = program_model.kernels
@@ -816,9 +718,9 @@ def compile_cl_program_emulation(program_model: Program, thread: Thread, file: s
     return callable_kernels
 
 
-def compile_cl_program(program_model: Program, thread: Thread = None, emulate: bool = False,
+def compile_cl_program(program_model: Program, context: Context = None, emulate: bool = False,
                        file: str = '$default_path') -> ProgramContainer:
-    t_ns_start = time.time_ns()
+    t_ns_start = time.perf_counter_ns()
     # deal with file name
     if isinstance(file, Path):
         file = str(file)
@@ -828,44 +730,25 @@ def compile_cl_program(program_model: Program, thread: Thread = None, emulate: b
     elif file == '$default_path':
         file = str(program_model.get_default_dir_pycl_kernels().joinpath(program_model.kernels[0].name))
 
-    # try to extract cl init from kernel buffer default arguments. This improves usability
-    if thread is None:
-        try:
-            knl_arg_buffer = [v for k, v in program_model.kernels[0].args.items()
-                              if isinstance(v, Global) and v.default is not None][0]
-            thread = Thread.from_buffer(knl_arg_buffer.default)
-        except IndexError:  # when no default value is present index error is raised
-            thread = get_current_thread()
-
-    # If kernel arguments are of type np.ndarray they are converted to cl arrays here
-    # This is done here, since thread is available at this point for sure.
-    def deal_with_np_arrays(v):
-        if isinstance(v, Global) and isinstance(v.default, np.ndarray):
-            v.default = to_device(thread.queue, ary=v.default)
-            return v
-        else:
-            return v
-
-    for knl in program_model.kernels:
-        knl.args = {k: deal_with_np_arrays(v) for k, v in knl.args.items()}
+    if context is None:
+        context = get_current_queue().context
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}
     if emulate:
-        dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, thread, file)
+        dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, context, file)
         callable_kernels = {k: CallableKernelEmulation(kernel_model=dict_kernels_program_model[k], function=v)
                             for k, v in dict_emulation_kernel_functions.items()}
     else:
-        dict_device_kernel_functions = compile_cl_program_device(program_model, thread, file)
-        callable_kernels = {k: CallableKernelDevice(kernel_model=dict_kernels_program_model[k], compiled=v,
-                                                    queue=thread.queue)
+        dict_device_kernel_functions = compile_cl_program_device(program_model, context, file)
+        callable_kernels = {k: CallableKernelDevice(kernel_model=dict_kernels_program_model[k], compiled=v)
                             for k, v in dict_device_kernel_functions.items()}
     # make callable kernel available in knl model instance
     for knl in program_model.kernels:
         knl.callable_kernel = callable_kernels[knl.name]
-    thread.queue.t_ns.add_compilcation(time.time_ns() - t_ns_start)
+    context.add_time_compilation(time.perf_counter_ns() - t_ns_start)
     return ProgramContainer(program_model=program_model,
                             file=file,
-                            init=thread,
+                            init=context,
                             callable_kernels=callable_kernels)
 
 
@@ -1022,7 +905,7 @@ class Helpers:
         # return None
 
     @staticmethod
-    def get_local_size_coalesced_last_dim(global_size, thread: Thread):
+    def get_local_size_coalesced_last_dim(global_size, context: Context):
         """
         If global size is no multiple of the local size, according to following link it should not work.
         https://community.khronos.org/t/opencl-ndrange-global-size-local-size/4167
@@ -1031,8 +914,8 @@ class Helpers:
         size is not necessarily a multiple.
 
         :param global_size:
-        :param thread:
+        :param context:
         :return:
         """
-        desired_wg_size = 4 * thread.device.global_mem_cacheline_size
+        desired_wg_size = 4 * context.device.global_mem_cacheline_size
         return Helpers._get_local_size_coalesced_last_dim(global_size, desired_wg_size)

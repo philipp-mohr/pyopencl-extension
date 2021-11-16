@@ -10,7 +10,7 @@ from typing import List
 import numpy as np
 
 from pyopencl_extension import Function, Kernel, Types, Scalar, \
-    Global, Program, Thread, Private, Local, zeros_like, Array, zeros
+    Global, Program, Private, Local, zeros_like, Array, zeros
 
 
 # Definition of radix 2 - 16 functions:
@@ -434,7 +434,7 @@ class FftBase:
                              local_size=(1, 1, d['T']))
         program = Program(funcs,
                           [knl_gpu_fft], defines=d, type_defs=type_defs
-                          ).compile(Thread.from_buffer(data_in), emulate=emulate,
+                          ).compile(context=data_in.context, emulate=emulate,
                                     file=Program.get_default_dir_pycl_kernels().joinpath(
                                         f'fft_{iteration}_{stage_builder.radix}'))
         return program.gpu_fft
@@ -473,7 +473,7 @@ class FftBase:
         else:
             self._out_shape = (M, N)
 
-        data_in = zeros(in_buffer.queue, (M, N), data_t)
+        data_in = zeros((M, N), data_t)
         data_out = zeros_like(data_in)
 
         radixes = [16, 8, 4, 2]  # available radix ffts
@@ -482,7 +482,7 @@ class FftBase:
             radix=2,  # might change according to schedule
             data_t=data_t, real_t=real_t,
             fft_size=N,
-            global_mem_cacheline_size=Thread.from_buffer(in_buffer).device.global_mem_cacheline_size,
+            global_mem_cacheline_size=in_buffer.context.devices[0].global_mem_cacheline_size,
             size_data_in_first_iteration=in_buffer.shape[1], iteration_max=len(self.schedule) - 1)
         self.kernels_for_iteration = [
             self._get_kernel(fft_stage_builder, iteration=_iter, radix=_radix, data_in=data_in, data_out=data_out,

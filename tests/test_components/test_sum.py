@@ -3,9 +3,9 @@ import numpy as np
 from pyopencl_extension import SumAlongAxis, to_device
 
 
-def test_sum_along_axis(thread):
+def test_sum_along_axis():
     ary = np.array([[1, 2, 3], [1, 2, 3]])
-    ary_buffer = to_device(thread.queue, ary)
+    ary_buffer = to_device(ary)
     """"
     sum_along_axis = SumAlongAxis(ary_buffer, axis=0)
     res = sum_along_axis().get()
@@ -19,9 +19,9 @@ def test_sum_along_axis(thread):
     assert np.all(res == ref)
 
 
-def test_sum_along_axis_1d(thread):
+def test_sum_along_axis_1d():
     ary = np.array([1, 2, 3])
-    ary_buffer = to_device(thread.queue, ary)
+    ary_buffer = to_device(ary)
 
     sum_along_axis = SumAlongAxis(ary_buffer, axis=0)
     # res_py = sum_along_axis(emulate=True).get()

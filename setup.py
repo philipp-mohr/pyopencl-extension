@@ -18,12 +18,12 @@ DESCRIPTION = 'This package extends PyOpenCl by providing an elegant programming
 URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
-REQUIRES_PYTHON = '>=3.9.0'
-VERSION = '0.0.44'
+REQUIRES_PYTHON = '>=3.10.0'
+VERSION = '0.1.0'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-    'numpy', 'pyopencl', 'mako','pycparser','pycparserext','pyastyle'  # 'requests', 'maya', 'records',
+    'numpy', 'pyopencl', 'mako', 'pycparser', 'pycparserext', 'pyastyle'  # 'requests', 'maya', 'records',
 ]
 
 # What packages are optional?
@@ -99,7 +99,7 @@ class LocalCommand(Command):
         self.status('Building Source and Wheel distribution…')
         os.system(f'{sys.executable} setup.py sdist bdist_wheel')
         # self.status('Building Source and Wheel (universal) distribution…')
-        #os.system(f'{sys.executable} setup.py sdist bdist_wheel --universal')
+        # os.system(f'{sys.executable} setup.py sdist bdist_wheel --universal')
         from pathlib import Path
         test_status = os.system(str(Path(sys.executable).parent.joinpath('pytest')))
         return test_status
@@ -154,7 +154,7 @@ setup(
         # Full list: https://pypi.python.org/pypi?%3Aaction=list_classifiers
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy'
     ],

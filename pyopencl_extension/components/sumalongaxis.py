@@ -1,4 +1,4 @@
-from pyopencl_extension import Helpers, Program, Kernel, Global, Scalar, Thread, Array, empty
+from pyopencl_extension import Helpers, Program, Kernel, Global, Scalar, Array, empty
 from pyopencl_extension import Types
 
 __author__ = "piveloper"
@@ -79,12 +79,12 @@ class SumAlongAxis:
         else:
             shape_out = tuple([size for i_axis, size in enumerate(self.in_buffer.shape) if i_axis != self.axis])
         if out_buffer is None:
-            self.out_buffer = empty(in_buffer.queue, shape_out, self.in_buffer.dtype)
+            self.out_buffer = empty(shape_out, self.in_buffer.dtype)
         else:
             if out_buffer.shape != shape_out:
                 raise ValueError('out buffer shape does not match required shape')
             self.out_buffer = out_buffer
-        self.program = self._get_cl_program().compile(Thread.from_buffer(in_buffer))
+        self.program = self._get_cl_program().compile()
 
     def __call__(self, *args, **kwargs):
         self.program.sum_along_axis()

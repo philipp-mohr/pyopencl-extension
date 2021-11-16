@@ -1,4 +1,4 @@
-from pyopencl_extension import Types, Thread, use_existing_file_for_emulation, Fft, IFft, to_device
+from pyopencl_extension import Types, use_existing_file_for_emulation, Fft, IFft, to_device
 
 
 import time
@@ -35,8 +35,7 @@ def test_fft(in_data_np):
     atol = 1e-4 if in_data_np.dtype == Types.cfloat else 1e-8
     import numpy as np
 
-    thread = Thread(profile=False)
-    in_data_cl = to_device(thread.queue, in_data_np)
+    in_data_cl = to_device(in_data_np)
 
     fft_cl = Fft(in_data_cl, emulate=False)
 
@@ -119,8 +118,7 @@ def test_fft(in_data_np):
 
 
 def test_ifft(in_data_np):
-    thread = Thread(profile=False)
-    in_ = to_device(thread.queue, in_data_np)
+    in_ = to_device(in_data_np)
     fft_cl = Fft(in_buffer=in_)
     fft_in_ = fft_cl()
 

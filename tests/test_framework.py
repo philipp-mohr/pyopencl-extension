@@ -1,56 +1,55 @@
 import logging
-import queue
 import time
-import timeit
 
 import numpy as np
+
+from pyopencl_extension import Helpers, Program, Kernel, Function, Scalar, Global, HashArray, Array, zeros, \
+    to_device
+from pyopencl_extension import get_current_queue, set_current_queue, create_queue
+from pyopencl_extension.modifications_pyopencl.command_queue import QueueProperties
+from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, Types
 import pytest
 
-from pyopencl_extension import Helpers, Thread, Program, Kernel, Function, Scalar, Global, HashArray, Array, zeros, \
-    to_device, empty, empty_like
-from pyopencl_extension.framework import get_current_thread, get_devices, set_current_thread, get_thread
-from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, Types
 
-
-def test_current_thread_feature_1():
-    # whenever Thread() is called this is set as the current thread. Be careful, that Thread() leads to a new
+def test_current_queue_feature_1():
+    # whenever create_thread() is called this is set as the current thread. Be careful, that Thread() leads to a new
     # context/queue.
-    thread = Thread()
-    assert hash(get_current_thread()) == hash(thread)
+    queue = create_queue()
+    assert hash(get_current_queue()) == hash(queue)
 
 
-def test_current_thread_feature_2():
-    set_current_thread(None)
-    thread1 = get_current_thread()
+def test_current_queue_feature_2():
+    set_current_queue(None)
+    queue1 = get_current_queue()
     # use get_devices() to get list with available_devices where index corresponds to device id
-    set_current_thread(thread1)
-    thread1_reused = get_current_thread()
-    assert hash(thread1) == hash(thread1_reused)
-    set_current_thread(get_thread(device_id=0))
-    thread2 = get_current_thread()
-    assert hash(thread1) != hash(thread2)
-    set_current_thread(thread1)
-    thread1_reused = get_current_thread()
-    assert hash(thread1) == hash(thread1_reused)
+    set_current_queue(queue1)
+    thread1_reused = get_current_queue()
+    assert hash(queue1) == hash(thread1_reused)
+    set_current_queue(create_queue(device_id=0))
+    thread2 = get_current_queue()
+    assert hash(queue1) != hash(thread2)
+    set_current_queue(queue1)
+    thread1_reused = get_current_queue()
+    assert hash(queue1) == hash(thread1_reused)
 
 
 class MyComponentAutomaticArgs:
-    def __init__(self, thread: Thread):
-        self.buff = zeros(thread.queue, (10,), Types.short)
+    def __init__(self):
+        self.buff = zeros((10,), Types.short)
         self.knl = Kernel('some_operation',
                           {'buff': Global(self.buff),
                            'number': Scalar(Types.short(3))},
                           ["""
                                 buff[get_global_id(0)] = number;
                                 """],
-                          global_size=self.buff.shape).compile(thread)
+                          global_size=self.buff.shape).compile()
 
     def __call__(self, *args, **kwargs):
         self.knl()
 
 
-def test_automatic_kernel_arguments(thread):
-    component = MyComponentAutomaticArgs(thread)
+def test_automatic_kernel_arguments():
+    component = MyComponentAutomaticArgs()
 
     component()
 
@@ -60,23 +59,23 @@ def test_automatic_kernel_arguments(thread):
 
 
 class MyComponentManualArgs:
-    def __init__(self, thread: Thread, b_create_kernel_file: bool = True):
-        self.buff = zeros(thread.queue, (10,), Types.short)
+    def __init__(self, b_create_kernel_file: bool = True):
+        self.buff = zeros((10,), Types.short)
         self.knl = Kernel('some_operation',
                           {'buff': Global(self.buff),
                            'number': Scalar(Types.short(1))},
                           ["""
                                 buff[get_global_id(0)] = number;
                                 """],
-                          global_size=self.buff.shape).compile(thread)
+                          global_size=self.buff.shape).compile()
 
     def __call__(self, number: float = 0, **kwargs) -> Array:
         self.knl(number=number, **kwargs)
         return self.buff
 
 
-def test_manual_kernel_arguments(thread):
-    component = MyComponentManualArgs(thread)
+def test_manual_kernel_arguments():
+    component = MyComponentManualArgs()
 
     component(number=3)
 
@@ -93,8 +92,8 @@ class MyComponentManualNoSuperCall(MyComponentManualArgs):
         return self.buff
 
 
-def test_manual_kernel_arguments_no_super_call(thread):
-    component = MyComponentManualNoSuperCall(thread)
+def test_manual_kernel_arguments_no_super_call():
+    component = MyComponentManualNoSuperCall()
 
     component(number=3)
 
@@ -111,9 +110,9 @@ class MyComponentComplexExample:
             self.knl(number=1)
         return self.buff
 
-    def __init__(self, thread: Thread, mode='a', b_create_kernel_file: bool = True):
+    def __init__(self, mode='a', b_create_kernel_file: bool = True):
         self.mode = mode
-        self.buff = zeros(thread.queue, (10,), Types.short)
+        self.buff = zeros((10,), Types.short)
         self.data_t = self.buff.dtype
         func = Function('plus_one',
                         {'buffer': Global(self.buff.dtype),
@@ -135,29 +134,29 @@ class MyComponentComplexExample:
         defines = {'SOME_CONSTANT': 6}
         type_defs = {'data_t': self.data_t}
         self.program = Program(defines=defines, type_defs=type_defs, functions=[func],
-                               kernels=[knl]).compile(thread)
+                               kernels=[knl]).compile()
         self.knl = knl
 
 
-def test_complex_example(thread):
-    component = MyComponentComplexExample(thread)
-    component_b = MyComponentComplexExample(thread, mode='b')
+def test_complex_example():
+    component = MyComponentComplexExample()
+    component_b = MyComponentComplexExample(mode='b')
     res = component().get()
     res_b = component_b().get()
 
     assert np.all(res == 11)
 
 
-def test_complex_example_conversion_python(thread):
-    component = MyComponentComplexExample(thread)
+def test_complex_example_conversion_python():
+    component = MyComponentComplexExample()
     res_cl = component().get()
     res_py = component(emulate=True).get()
 
     assert np.all(res_cl == res_py - res_cl)
 
 
-def test_non_existing_argument_raises_warning(thread):
-    component = MyComponentComplexExample(thread)
+def test_non_existing_argument_raises_warning():
+    component = MyComponentComplexExample()
     try:
         res_cl = component(buffer2='something').get()
     except ValueError as err:
@@ -165,12 +164,12 @@ def test_non_existing_argument_raises_warning(thread):
             err) == 'keyword argument [\'buffer2\'] does not exist in kernel argument list [\'buff\', \'number\']'
 
 
-def test_memoize_kernel(thread):
+def test_memoize_kernel():
     # thread = Thread(profile=True)
     ary_a = np.ones(int(1e3))
     ary_b = np.zeros(ary_a.shape)
-    ary_a_buffer = to_device(thread.queue, ary_a)
-    ary_b_buffer = to_device(thread.queue, ary_b)
+    ary_a_buffer = to_device(ary_a)
+    ary_b_buffer = to_device(ary_b)
     n_recompilations = 100
     for i in range(n_recompilations + 1):
         kernels = []
@@ -182,33 +181,32 @@ def test_memoize_kernel(thread):
                      ary_b[get_global_id(0)] = ary_a[get_global_id(0)];
                      """)
             kernels.append(some_knl)
-        Program(kernels=kernels).compile(thread)
+        Program(kernels=kernels).compile()
         some_knl(global_size=ary_a.shape)
         if i == 1:
             t = time.time()
     time_per_recompile = (time.time() - t) / n_recompilations
-    thread.queue.finish()
     # thread.queue.get_profiler().show_histogram_cumulative_kernel_times()
     print(time_per_recompile)
     assert time_per_recompile < 0.001  # less than 1 ms overhead per recompilation achieved through caching
 
 
-def test_get_refreshed_argument_of_memoized_kernel(thread):
+def test_get_refreshed_argument_of_memoized_kernel():
     for i in range(10):
         ary_a = np.ones(100) + i
         ary_b = np.zeros(100)
         some_knl = Kernel('some_knl',
-                          {'ary_a': Global(to_device(thread.queue, ary_a)),
-                           'ary_b': Global(to_device(thread.queue, ary_b))},
+                          {'ary_a': Global(to_device(ary_a)),
+                           'ary_b': Global(to_device(ary_b))},
                           """
                  ary_b[get_global_id(0)] = ary_a[get_global_id(0)];
-                 """).compile(thread)
+                 """).compile()
         some_knl(global_size=ary_a.shape)
     assert np.all(some_knl.ary_b.get() == ary_a)
 
 
-def test_kernel_arg_type_conversion(thread):
-    mem = {'ary_b': zeros(thread.queue, shape=(100,), dtype=Types.int)}
+def test_kernel_arg_type_conversion():
+    mem = {'ary_b': zeros(shape=(100,), dtype=Types.int)}
     for i in range(5):
         ary_a = np.ones(100, Types.int)
         some_knl = Kernel('some_knl',
@@ -218,7 +216,7 @@ def test_kernel_arg_type_conversion(thread):
                                  },
                           'ary_a[get_global_id(0)] = ary_a[get_global_id(0)] + offset;' + \
                           'ary_b[get_global_id(0)] = ary_b[get_global_id(0)] + offset;',
-                          global_size=ary_a.shape).compile(thread)
+                          global_size=ary_a.shape).compile()
         some_knl()
     assert np.all(some_knl.ary_a.get() == ary_a + 4)  # every kernel call the numpy array is send to device
     assert np.all(10 == mem['ary_b'].get())
@@ -227,7 +225,7 @@ def test_kernel_arg_type_conversion(thread):
 logging.basicConfig(level=logging.INFO)
 
 
-def test_local_from_global_dimenstions(thread):
+def test_local_from_global_dimenstions():
     local_size = Helpers._get_local_size_coalesced_last_dim(global_size=(10000, 128), desired_wg_size=64)
     assert local_size == (1, 64)
     local_size = Helpers._get_local_size_coalesced_last_dim(global_size=(13, 13), desired_wg_size=64)
@@ -237,24 +235,24 @@ def test_local_from_global_dimenstions(thread):
 
 
 def test_multiple_command_queues():
-    thread = Thread()
-    thread2 = Thread(thread.context)
-    ary_a = to_device(thread.queue, np.ones(100000) + 1)
-    ary_b = to_device(thread.queue, np.zeros(100000))
+    queue1 = create_queue(device_id=0)
+    queue2 = create_queue(context=queue1.context)
+    ary_a = to_device(np.ones(100000) + 1, queue1)
+    ary_b = to_device(np.zeros(100000), queue1)
     some_knl = Kernel('some_knl',
                       {'ary_a': Global(ary_a),
                        'ary_b': Global(ary_b)},
                       """
              ary_b[get_global_id(0)] += ary_a[get_global_id(0)];
-             """, global_size=ary_a.shape).compile(thread2)
-    some_knl(queue=thread2.queue)
+             """, global_size=ary_a.shape).compile(queue2.context)
+    some_knl(queue=queue2)
     # thread2.queue.finish()
-    some_knl(queue=thread.queue)
+    some_knl(queue=queue1)
     test = 0
 
 
-def test_hash_array(thread):
-    ary = zeros(thread.queue, shape=(100,), dtype=Types.float)
+def test_hash_array():
+    ary = zeros(shape=(100,), dtype=Types.float)
     hash_ary = HashArray(ary)
     a_hash = hash_ary.hash
     hash_ary.set(np.ones(hash_ary.shape).astype(hash_ary.dtype))
@@ -283,15 +281,11 @@ def test_hash_array(thread):
 def test_profiling():
     # todo: python (net) time seems not correct
     # - How to deal with multiple events created in e.g. zeros()
-    thread = Thread(profile=True)
-    queue = thread.queue
+    queue = create_queue(queue_properties=QueueProperties.PROFILING_ENABLE)
+    set_current_queue(queue)
     size = int(1e8)
     for i in range(10):
-        ary = zeros(queue, (size,), dtype=Types.int)
-    # ary.set(np.zeros((size,), dtype=Types.int))
-    # ary_np = ary.get()
-    # ary = empty(queue, (size,), dtype=Types.int)
-    # ary = empty_like(ary)
+        _ = zeros((size,), dtype=Types.int)
     queue.finish()
     queue.get_profiler().show_histogram_cumulative_kernel_times()
 
@@ -311,8 +305,8 @@ def test_profiling():
 #     some_knl.timeit(reps=1, number=10)
 
 
-def test_add_functions_inside_function_or_kernel_definition(thread):
-    ary_a = to_device(thread.queue, np.ones(100))
+def test_add_functions_inside_function_or_kernel_definition():
+    ary_a = to_device(np.ones(100))
     fnc_add3 = Function('add_three',
                         {'a': Scalar(Types.int)},
                         'return a + 3;', returns=Types.int)
@@ -329,15 +323,14 @@ def test_add_functions_inside_function_or_kernel_definition(thread):
              """, global_size=ary_a.shape,
                       functions=[fnc_add5])
     functions = []  # funcitons defined here have higher proiority in case of name conflicts
-    Program(functions=functions, kernels=[some_knl]).compile(thread)
+    Program(functions=functions, kernels=[some_knl]).compile()
     some_knl()
     assert ary_a.get()[0] == 6
 
 
-def test_conversion_knl_fnc_args_with_no_pointer_format(thread):
-    queue = thread.queue
+def test_conversion_knl_fnc_args_with_no_pointer_format():
     a_np = np.array([0.1, 0.2], dtype=Types.float)
-    b_cl = zeros(queue, shape=(2,), dtype=Types.float)
+    b_cl = zeros(shape=(2,), dtype=Types.float)
     fnc = Function('copy_fnc',
                    {'a': a_np, 'b': b_cl, 'idx': Scalar(Types.int)},
                    """
@@ -348,6 +341,6 @@ def test_conversion_knl_fnc_args_with_no_pointer_format(thread):
                  """
                  copy_fnc(a, b, get_global_id(0));
                  """, functions=[fnc], global_size=b_cl.shape)
-    knl.compile(thread)
+    knl.compile()
     knl()
-    assert np.all(a_np==b_cl.get())
+    assert np.all(a_np == b_cl.get())
