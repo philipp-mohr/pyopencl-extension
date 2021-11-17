@@ -917,5 +917,5 @@ class Helpers:
         :param context:
         :return:
         """
-        desired_wg_size = 4 * context.device.global_mem_cacheline_size
+        desired_wg_size = 4 * context.devices[0].global_mem_cacheline_size
         return Helpers._get_local_size_coalesced_last_dim(global_size, desired_wg_size)

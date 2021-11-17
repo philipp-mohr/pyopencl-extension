@@ -196,13 +196,13 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
     if any([(part[0] - part[1]) == 0 for part in region]):  # check that there is no empty slice
         return
     global_size = np.product([part[1] - part[0] for part in region])
-    target_shape = to_device(array.queue, np.array(array.shape).astype(Types.int))
-    offset_target = to_device(array.queue, np.array([part[0] for part in region]).astype(Types.int))
-    source_shape = to_device(array.queue, np.array([part[1] - part[0] for part in region]).astype(Types.int))
+    target_shape = to_device(np.array(array.shape).astype(Types.int))
+    offset_target = to_device(np.array([part[0] for part in region]).astype(Types.int))
+    source_shape = to_device(np.array([part[1] - part[0] for part in region]).astype(Types.int))
     source_n_dims = len(source_shape)
 
     if isinstance(value, np.ndarray):
-        source = to_device(array.queue, value.astype(array.dtype))
+        source = to_device(value.astype(array.dtype))
         arg_source = Global(source)
         code_source = 'source[get_global_id(0)]'
     else:
@@ -231,11 +231,11 @@ def cl_set(array: Array, region: TypeSliceFormatCopyArrayRegion, value):
    // Finally, we can determine the id of the target array and copy element to corresponding position:
    // id_target = (id0*offset0t)*s1t*s2t ... (sxt: shape of target array along dim x)
    int id_target = 0; // to be iteratively computed from global id, slice dimensions and ary dimensions
-   
+
    int temp = get_global_id(0);
    int prod_source_id_multiplier = 1;
    int prod_target_id_multiplier = 1;
-   
+
    for(int i=source_n_dims-1; i>=0; i--){ // i=i_axis_source
     int id_source = temp % source_shape[i];
     temp = (int)((temp-id_source)/source_shape[i]);
