@@ -169,10 +169,11 @@ def get_context(device_id: int = None):
 
 def get_device_id_from_env_var() -> int:
     # add environmental variable PYOPENCL_DEVICE with 0 to select device 0 as default device
-    device_id = os.environ["PYOPENCL_DEVICE"]
-    if device_id:
+    try:
+        device_id = os.environ["PYOPENCL_DEVICE"]
         return int(device_id)
-    else:
+    except KeyError:
+        logging.info('Default device not configured in environmental variables.')
         return 0
 
 
@@ -216,7 +217,7 @@ def create_queue(device_id: int = None, queue_properties: QueueProperties = Queu
     return queue
 
 
-def get_current_queue(*args, **kwargs)->CommandQueue:
+def get_current_queue(*args, **kwargs) -> CommandQueue:
     global _current_queue
     if _current_queue is None:
         logging.info(f'Created queue for device {_default_device} (get_current_queue was called first time)')

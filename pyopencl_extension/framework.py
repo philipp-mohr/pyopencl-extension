@@ -1,3 +1,9 @@
+__author__ = "piveloper"
+__copyright__ = "26.03.2020, piveloper"
+__version__ = "1.0"
+__email__ = "piveloper@gmail.com"
+__doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
+
 import os
 import re
 import time
@@ -44,12 +50,6 @@ _ = ClTypesScalar
 TypesArgScalar = Union[int, float,
                        _.char, _.short, _.int, _.long, _.uchar, _.ushort, _.uint, _.ulong, _.half, _.float, _.double]
 # TypesKernelArg = Union[Array, TypesDefines] # todo: remove?
-
-__author__ = "piveloper"
-__copyright__ = "26.03.2020, piveloper"
-__version__ = "1.0"
-__email__ = "piveloper@gmail.com"
-__doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
 
 preamble_activate_double = """
 #if defined(cl_khr_fp64)  // Khronos extension available?
