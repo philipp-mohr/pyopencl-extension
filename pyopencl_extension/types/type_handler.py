@@ -256,8 +256,8 @@ class TypeHandlerScalar:
         self.dtype = dtype
 
     def __call__(self, arg):
-        from pyopencl_extension.types.funcs_for_emulation import CArray
-        if isinstance(arg, CArray):
+        from pyopencl_extension.types.funcs_for_emulation import CPointer
+        if isinstance(arg, CPointer):
             return arg.view(self.dtype)
         else:
             return np.dtype(self.dtype).type(arg)
@@ -273,15 +273,16 @@ class TypeHandlerVec:
         self._type = eval(f'tp.make_{name}')
 
     def __call__(self, *args):
-        from pyopencl_extension.emulation import CArray, CArrayVec
-        if isinstance(args[0], CArray) or isinstance(args[0], CArrayVec):
+        from pyopencl_extension.types.funcs_for_emulation import CPointer
+        from pyopencl_extension.types.funcs_for_emulation import CPointerVec
+        if isinstance(args[0], CPointer) or isinstance(args[0], CPointerVec):
             return args[0].view(self.dtype)
         elif isinstance(args[0], VecVal):
             return args[0]
         elif len(args) == 1:
             a = self._type(*(args * len(self.dtype.names)))
             return VecVal(a)
-        elif isinstance(args, Tuple):
+        elif isinstance(args, tuple):
             a = self._type(*args)
             return VecVal(a)
         else:
@@ -307,16 +308,16 @@ def test_vec_val():
 
 
 def test_vec_val_and_carray():
-    from pyopencl_extension.types.funcs_for_emulation import CArray
+    from pyopencl_extension.types.funcs_for_emulation import CPointerVec
     from pyopencl_extension import Types
     import pyopencl_extension.types.auto_gen.types_for_emulation as tp_emulation
     a = tp_emulation.long2(1, 2)
     b = tp_emulation.long2(1, 2)
 
-    ary = CArray((10,), Types.long2)
+    ary = CPointerVec(10, Types.long2)
     ary[0] = a + b
     assert ary[0].val == tp_emulation.long2(2, 4).val
 
-    ary = CArray((10,), Types.long2)
+    ary = CPointerVec(10, Types.long2)
     ary_typed = tp_emulation.long4(ary)
-    assert ary_typed.dtype == Types.long4
+    assert ary_typed.memory.dtype == Types.long4

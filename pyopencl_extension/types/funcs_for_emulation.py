@@ -1,4 +1,5 @@
 import math as math
+from abc import abstractmethod
 
 from pyopencl_extension.types.auto_gen.types_for_emulation import *
 from pyopencl_extension.types.utilities_np_cl import c_to_np_type_name_catch, is_vector_type, get_unsigned_dtype
@@ -8,66 +9,78 @@ cdouble_t = np.dtype('complex128').type
 void = np.dtype('void').type
 
 
-class CArrayBase(np.ndarray):
+class CPointerBase:
     @property
-    def np(self):
+    @abstractmethod
+    def np(self) -> np.ndarray:
         pass
 
+    def __init__(self, size, type_c, mem=None, pos=0):
+        self.type_c = type_c
+        self.size = size
+        self.memory = self._init_memory() if mem is None else mem
+        self._validate_pos(pos)
+        self.pos = pos
 
-class CArray(CArrayBase):
-    # https://numpy.org/doc/stable/user/basics.subclassing.html
-    # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
-    def __new__(cls, shape, dtype, *args, **kwargs):
-        if is_vector_type(dtype):
-            return CArrayVec(shape, dtype, *args, **kwargs)
+    @classmethod
+    def from_np(cls, ary):
+        return cls(size=ary.size, type_c=ary.dtype, mem=ary)
+
+    def view(self, type_c):
+        mem = self.memory.view(type_c)
+        return self.__class__(type_c=type_c, size=mem.shape[0], mem=mem, pos=self.pos)
+
+    def _validate_pos(self, pos):
+        if not 0 <= pos < self.size:
+            raise MemoryError('Out of memory bounds positioning of pointer')
         else:
-            return super(CArray, cls).__new__(cls, shape, dtype, *args, **kwargs)
-        # here, attributes can be added to numpy class instance_
+            return pos
+
+    def fill(self, val):
+        self.memory.fill(val)
 
     def __add__(self, other):
-        ary = self[other:]
-        if hasattr(self, 'org'):  # keeps pointer to original allocated memory space
-            ary.org = self.org
-        else:
-            ary.org = self
-        return ary
+        return self.__class__(size=self.size, type_c=self.type_c, mem=self.memory, pos=self.pos + other)
 
-    @property
-    def np(self):
-        return np.array(self)
+    def __sub__(self, other):
+        return self.__class__(size=self.size, type_c=self.type_c, mem=self.memory, pos=self.pos - other)
 
-    # todo: decrement a pointer
-    # def __sub__(self, other):
-    #     return self[other:]
+    def __getitem__(self, item):
+        return self.memory[self.pos + item]
 
-    def __set__(self, instance, value):
+    @abstractmethod
+    def __setitem__(self, instance, value):
         pass
 
-    def __setitem__(self, instance, value):
-        super().__setitem__(instance, value)
+    def _init_memory(self):
+        mem = np.empty((self.size,), dtype=self.type_c)
+        mem[:] = 99999  # arbitrary number to indicate that element of array contains intial value
+        return mem
 
 
-class CArrayVec(CArrayBase):
-    # not needed since we convert np.array a with a.view(CArrayVec) and call to __new__ is omitted
-    # def __new__(cls, *args, **kwargs):
-    #     instance_ = super(CArrayVec, cls).__new__(cls, *args, **kwargs)
-    #     instance_.vec_size = len(instance_.dtype.descr)
-    #     return instance_
-
-    def __add__(self, other):
-        ary = self[other:]
-        if hasattr(self, 'org'):  # keeps pointer to original allocated memory space
-            ary.org = self.org
-        else:
-            ary.org = self
-        return ary
+class CPointer(CPointerBase):
+    @property
+    def np(self) -> np.ndarray:
+        return self.memory
 
     def __setitem__(self, instance, value):
-        vec_size = len(self.dtype.descr)
+        self.memory[self.pos + instance] = value
+
+
+class CPointerVec(CPointerBase):
+    @property
+    def np(self):
+        vector_element_dtype = dict(self.memory.dtype.fields)['s0'][0]
+        vector_len = len(self.memory.dtype.descr)
+        res = np.array(self.memory.view(vector_element_dtype)).reshape(self.memory.shape[0], vector_len)
+        return res
+
+    def __setitem__(self, instance, value):
+        vec_size = len(self.memory.dtype.descr)
         # get reference
-        element = super(CArrayVec, self).__getitem__(instance)
+        element = self.memory[instance]
         # element =self[instance] this returns a copy of the the element in memory and therefore an assignment has no effect
-        # on origional
+        # on original
         for i in range(vec_size):
             field = f's{i}'
             element[field] = value.val[field]
@@ -75,17 +88,10 @@ class CArrayVec(CArrayBase):
 
     def __getitem__(self, item):
         if isinstance(item, slice):
-            return super(CArrayVec, self).__getitem__(item)
+            return self.memory[self.pos]
         else:
-            res = super(CArrayVec, self).__getitem__(item)
+            res = self.memory[item + self.pos]
             return VecVal(res.copy())
-
-    @property
-    def np(self):
-        vector_element_dtype = dict(self.dtype.fields)['s0'][0]
-        vector_len = len(self.dtype.descr)
-        res = np.array(self.view(vector_element_dtype)).reshape(self.shape[0], vector_len)
-        return res
 
 
 sign = lambda x: np.sign(x)
@@ -105,13 +111,9 @@ INFINITY = np.inf
 
 def init_array(size, type_c):
     if isinstance(type_c, TypeHandlerScalar):
-        ary = np.empty((size,), dtype=c_to_np_type_name_catch(type_c.dtype))
-        ary[:] = 99999  # arbitrary number to indicate that element of array contains intial value
-        return ary.view(CArray)
+        return CPointer(size, type_c)
     elif isinstance(type_c, TypeHandlerVec):
-        ary = np.empty((size,), dtype=type_c.dtype)
-        ary[:] = 99999  # arbitrary number to indicate that element of array contains intial value
-        return ary.view(CArrayVec)
+        return CPointerVec(size, type_c)
     else:
         raise ValueError(f'Array initialized with {str(type_c)} not supported')
 

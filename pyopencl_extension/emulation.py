@@ -26,7 +26,7 @@ from pyopencl._cl import LocalMemory
 
 from pytest import mark
 
-from pyopencl_extension.types.funcs_for_emulation import CArray, CArrayVec, init_array
+from pyopencl_extension.types.funcs_for_emulation import init_array, CPointer, CPointerVec
 from pyopencl_extension.helpers.general import write_string_to_file
 from pyopencl_extension import Array
 from pyopencl.array import Array as ClArray
@@ -609,9 +609,9 @@ def cl_kernel(kernel):
 
         def decide_ary_view(arg):
             if is_vector_type(arg.dtype):
-                return arg.view(CArrayVec)
+                return CPointerVec.from_np(arg)
             else:
-                return arg.view(CArray)
+                return CPointer.from_np(arg)
 
         args_python = [decide_ary_view(arg) if isinstance(arg, np.ndarray) else arg
                        for arg in args_python]
@@ -636,7 +636,7 @@ def cl_kernel(kernel):
                     [next(knl) for knl in blocking_kernels]
                 except StopIteration:
                     break
-        [arg.set(args_python[idx]) if isinstance(arg, arrays_cls) else arg for idx, arg in enumerate(args)]
+        [arg.set(args_python[idx].memory) if isinstance(arg, arrays_cls) else arg for idx, arg in enumerate(args)]
 
     return wrapper_loop_over_grid
 

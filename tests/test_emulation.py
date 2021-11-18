@@ -253,7 +253,6 @@ def test_number_overflow():
 
 # implement pointer arithmetics with pointer wrapper class for every variable
 def test_pointer_arithmetics():
-    # todo:
     # Problem: abstract syntax tree does not distinguish if an identifier is a pointer or a variable.
     # E.g. if incrementing the pointer to an array a (a=a+1) in Python this would increment all values in
     # the underlying array. However if
@@ -265,18 +264,17 @@ def test_pointer_arithmetics():
         a[0] = a[0] + 1;
         a[1] = 1;
         char* b = a + 1;
+        b -= 1; b += 1;
         data[0] = b[0];
         
         char* c = a;
         c += 1;
         a[1] = 3;
         data[1] = c[0];
-        
-    """,
-                 global_size=data.shape)
-    knl_cl = knl.compile()
+    """, global_size=data.shape)
     emulation.use_existing_file_for_emulation(False)
     knl_py = knl.compile(emulate=True)
+    knl_cl = knl.compile()
     knl_cl()
     res_cl = knl_cl.data.get()
     knl_py()
@@ -284,7 +282,11 @@ def test_pointer_arithmetics():
     assert np.all(res_cl[0] == res_py[0])
 
 
-@mark.parametrize('dtype', [Types.char, Types.char4], ids=['scalar type', 'vector type'])
+@mark.parametrize('dtype',
+                  [Types.char,
+                   Types.char4],
+                  ids=['scalar type',
+                       'vector type'])
 def test_pointer_increment(dtype):
     # todo use https://numpy.org/doc/stable/reference/generated/numpy.ndarray.ctypes.html
     data = np.array([0]).astype(dtype)
@@ -509,6 +511,7 @@ def test_barrier_global_local_mem_fence():
 
 
 @mark.parametrize(['name', 'dtype'], [('fmax', Types.float),
+                                      ('abs_diff', Types.int),
                                       ('abs_diff', Types.int),
                                       ('max', Types.int),
                                       ])
