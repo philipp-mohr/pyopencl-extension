@@ -10,7 +10,7 @@ from typing import Tuple, List
 import numpy as np
 from pycparser.c_ast import BinaryOp, ID, IdentifierType, Return, Constant, Assignment, Decl, FuncDef, Node, TypeDecl, \
     FuncCall, ExprList, Compound, ArrayRef, For, If, Cast, ArrayDecl, UnaryOp, While, Break, InitList, Typedef, \
-    StructRef, PtrDecl, TernaryOp
+    StructRef, PtrDecl, TernaryOp, EmptyStatement
 from pycparserext.ext_c_parser import FuncDeclExt, PreprocessorLine, OpenCLCParser
 
 
@@ -448,6 +448,8 @@ def _unparse(node: Node) -> Container:
         res = f'{_unparse(node.name)}.{_unparse(node.field)}'
     elif isinstance(node, TernaryOp):
         res = f'{_unparse(node.iftrue)} if {_unparse(node.cond)} else {_unparse(node.iffalse)}'
+    elif isinstance(node, EmptyStatement):
+        res = 'pass'
     elif node is None:
         res = ''
     else:

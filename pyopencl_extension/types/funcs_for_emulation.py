@@ -97,7 +97,6 @@ class CPointerVec(CPointerBase):
 sign = lambda x: np.sign(x)
 fabs = lambda x: np.abs(x)
 log2 = lambda x: np.log2(x)
-min = lambda x, y: np.min([x, y])
 sqrt = lambda x: x ** 0.5
 exp = lambda x: np.exp(x)
 log = lambda x: np.log(x)
@@ -158,8 +157,16 @@ def c_modulo(dividend, divisor):
 
 
 def max(x, y):
-    return np.max(x, y)
+    return np.max([x, y])
+
+
+def min(x, y):
+    return np.min([x, y])
 
 
 def fmax(x, y):
     return np.fmax(x, y)
+
+
+def clamp(x, minval, maxval):
+    return min(max(x, minval), maxval)
