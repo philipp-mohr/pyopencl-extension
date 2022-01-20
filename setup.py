@@ -14,12 +14,13 @@ from setuptools import find_packages, setup, Command
 
 # Package meta-data.
 NAME = 'pyopencl-extension'
-DESCRIPTION = 'This package extends PyOpenCl by providing an elegant programming framework and debugging capabilities.'
+DESCRIPTION = 'This package extends PyOpenCl by providing an object-oriented kernel programming framework and ' \
+              'debugging capabilities.'
 URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
 REQUIRES_PYTHON = '>=3.10.0'
-VERSION = '0.1.4'
+VERSION = '0.1.5'
 
 # What packages are required for this module to be executed?
 REQUIRED = [

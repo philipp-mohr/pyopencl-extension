@@ -2,7 +2,7 @@
 pyopencl-extension
 ==========================
 
-This package extends PyOpenCl by providing an easy to use Kernel programming framework and debugging capabilities.
+This package extends PyOpenCl by providing an object-oriented kernel programming framework and debugging capabilities.
 
 What makes pyopencl-extension special?
    * Build on top of `PyOpenCl <https://pypi.org/project/pyopencl/>`_ which can increase performance significantly.

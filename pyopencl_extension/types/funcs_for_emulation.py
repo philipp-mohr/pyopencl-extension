@@ -12,8 +12,11 @@ void = np.dtype('void').type
 class CPointerBase:
     @property
     @abstractmethod
-    def np(self) -> np.ndarray:
+    def np(self) -> tuple[np.ndarray, np.ndarray]:
         pass
+
+    def __str__(self):
+        return str(self.np[0])
 
     def __init__(self, size, type_c, mem=None, pos=0):
         self.type_c = type_c
@@ -60,8 +63,8 @@ class CPointerBase:
 
 class CPointer(CPointerBase):
     @property
-    def np(self) -> np.ndarray:
-        return self.memory
+    def np(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.memory[self.pos:], self.memory
 
     def __setitem__(self, instance, value):
         self.memory[self.pos + instance] = value
@@ -73,7 +76,7 @@ class CPointerVec(CPointerBase):
         vector_element_dtype = dict(self.memory.dtype.fields)['s0'][0]
         vector_len = len(self.memory.dtype.descr)
         res = np.array(self.memory.view(vector_element_dtype)).reshape(self.memory.shape[0], vector_len)
-        return res
+        return res[self.pos:, :], res[:, :]
 
     def __setitem__(self, instance, value):
         vec_size = len(self.memory.dtype.descr)
