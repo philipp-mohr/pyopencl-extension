@@ -425,12 +425,13 @@ class Program(Compilable):
 
     @staticmethod
     def _func_to_str_for_hash(func: FunctionBase):
+        str_funcs = ''.join(Program._func_to_str_for_hash(knl) for knl in func.functions)
         str_args = ''.join(Program._arg_to_str_for_hash(k, v) for k, v in func.args.items())
         str_repl = ''.join(k + str(v) for k, v in func.replacements.items())
         str_type_defs = ''.join(k + str(v) for k, v in func.type_defs.items())
         str_defines = ''.join(k + str(v) for k, v in func.defines.items())
         str_body = ''.join(func.body)
-        return str_type_defs + str_defines + str_repl + func.header + func.name + str_args + str_body
+        return str_funcs + str_type_defs + str_defines + str_repl + func.header + func.name + str_args + str_body
 
     def __hash__(self) -> int:
         str_funcs = ''.join(self._func_to_str_for_hash(knl) for knl in self.functions)

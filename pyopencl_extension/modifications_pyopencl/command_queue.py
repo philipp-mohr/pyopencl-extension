@@ -38,6 +38,9 @@ class TimingsQueue:
 
 
 class CommandQueue(cl.CommandQueue):
+    def __str__(self):
+        return f'Queue: {self.context.device_id=}'
+
     def __init__(self, context, device=None, properties: QueueProperties | int = QueueProperties.DEFAULT,
                  max_len_events=1e6):
         if isinstance(properties, QueueProperties):
@@ -52,6 +55,7 @@ class CommandQueue(cl.CommandQueue):
     @property
     def context(self) -> Context:
         return self._context
+
 
     def get_profiler(self) -> 'Profiling':
         self.t_ns.profiling_finished = time.perf_counter_ns()
@@ -96,6 +100,7 @@ class Profiling:
         return sum([_[1] for _ in self.list_cumulative_event_times_ms()])
 
     def show_histogram_cumulative_kernel_times(self):
+        self.queue.finish()
         import matplotlib.pyplot as plt
         import numpy as np
         fig, ax = plt.subplots()
@@ -187,6 +192,7 @@ _default_device = get_device_id_from_env_var()
 def set_current_queue(queue: CommandQueue | None):
     global _current_queue
     _current_queue = queue
+    logging.debug(f'set_current_queue {queue}')
 
 
 def set_default_device(device_id: int):
@@ -196,6 +202,7 @@ def set_default_device(device_id: int):
     """
     global _default_device
     _default_device = device_id
+    logging.debug(f'set_default_device {device_id=}')
 
 
 def create_queue(device_id: int = None, queue_properties: QueueProperties = QueueProperties.DEFAULT,
@@ -214,16 +221,17 @@ def create_queue(device_id: int = None, queue_properties: QueueProperties = Queu
 
     os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1' if compiler_output else '0'
     set_current_queue(queue)
+    logging.info(f'Create queue with {device_id=}')
     return queue
 
 
 def get_current_queue(*args, **kwargs) -> CommandQueue:
     global _current_queue
     if _current_queue is None:
-        logging.info(f'Created queue for device {_default_device} (get_current_queue was called first time)')
         _current_queue = create_queue(_default_device, *args, **kwargs)
     return _current_queue
 
 
 def get_device(device_id: int) -> cl.Device:
     return get_devices()[device_id]
+

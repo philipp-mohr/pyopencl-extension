@@ -23,7 +23,7 @@ class Context(cl.Context):
 
     @property
     def device_id(self):
-        matches = np.where(np.array([d.int_ptr for d in get_devices()]) == self.int_ptr)
+        matches = np.where(np.array([d.int_ptr for d in get_devices()]) == self.devices[0].int_ptr)
         if not len(matches) == 1:
             raise ValueError('int_ptr is expected to be unique identifier for device. '
                              'Change current implementation to fix issue')

@@ -282,12 +282,11 @@ def test_profiling():
     # todo: python (net) time seems not correct
     # - How to deal with multiple events created in e.g. zeros()
     queue = create_queue(queue_properties=QueueProperties.PROFILING_ENABLE)
-    set_current_queue(queue)
     size = int(1e8)
     for i in range(10):
         _ = zeros((size,), dtype=Types.int)
+    get_current_queue().get_profiler().show_histogram_cumulative_kernel_times()
     queue.finish()
-    queue.get_profiler().show_histogram_cumulative_kernel_times()
 
 
 # def test_kernel_timeit():
