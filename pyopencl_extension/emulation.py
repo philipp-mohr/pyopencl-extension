@@ -13,7 +13,6 @@ from pycparser.c_ast import BinaryOp, ID, IdentifierType, Return, Constant, Assi
     StructRef, PtrDecl, TernaryOp, EmptyStatement
 from pycparserext.ext_c_parser import FuncDeclExt, PreprocessorLine, OpenCLCParser
 
-
 __author__ = "piveloper"
 __copyright__ = "26.03.2020, piveloper"
 __version__ = "1.0"
@@ -651,6 +650,8 @@ regex_func_def = re.compile(r'#define[ ]+([\w]+)\(([\w, ]+)\)[ ]+([\w\.\(\)*\-+/
 regex_func_def_multi_line = re.compile(r'(#define)([ ]+)([\w]+)(\()([\w, ]+)(\))([ ]+)(\{)(.+)(\})')
 regex_include = re.compile(r'#include[ ]+<([\w\-\.]+>)')  # '#include <pyopencl-complex.h>\n
 regex_numbers_with_conversion_characater = re.compile(r'([\d.]+)([fd])')
+# define SOME_ARRAY (int[]){0, 1, 2, 3}
+regex_array_definition = re.compile(r'#define[ ]+([\w]+)[ ]+\((.+)\[\]\)+\{(.+)\}')
 
 search = lambda regex, text: re.search(regex, text)
 
@@ -693,6 +694,9 @@ def unparse_preprocessor_line(line: PreprocessorLine) -> str:
     elif search(regex_include, contents):
         # until now no case occured where python needs to include something like opencl
         return ''
+    elif res := search(regex_array_definition, contents):
+        name, dtype, data = res.group(1), res.group(2), res.group(3)
+        return f'{name} = np.array([{data}], dtype={dtype})'
     else:
         raise ValueError('Preprocessing line content not covered with Regex')
 
@@ -747,7 +751,7 @@ def search_for_barrier(code_c, ast):
     funcs_with_barrier = [_ for _ in funcs if
                           any(_['start_line'] < line < _['end_line'] for line in lines_with_barrier)]
     funcs_nested_barrier = [_ for _ in funcs if any(re.search(r'(\W)(' + func['name'] + r')(\W)',
-                                                              ''.join(code_c[_['start_line']:_['end_line']-1]))
+                                                              ''.join(code_c[_['start_line']:_['end_line'] - 1]))
                                                     for func in funcs_with_barrier)]
 
     return [_['name'] for _ in funcs_with_barrier + funcs_nested_barrier if not _['is_kernel']]
@@ -856,7 +860,7 @@ def create_py_file_and_load_module(code_py: str, file: str = None):
     return program_python
 
 
-def compute_linear_idx(idx_tuple, dimensions)->int:
+def compute_linear_idx(idx_tuple, dimensions) -> int:
     idx = 0
     n_dim = len(dimensions)
     for i in range(n_dim):

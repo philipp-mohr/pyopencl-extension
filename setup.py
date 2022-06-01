@@ -20,7 +20,7 @@ URL = 'https://github.com/piveloper/pyopencl-extension'
 EMAIL = 'piveloper@gmail.com'
 AUTHOR = 'piveloper'
 REQUIRES_PYTHON = '>=3.10.0'
-VERSION = '0.1.6'
+VERSION = '0.1.7'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
@@ -119,7 +119,7 @@ class UploadCommand(LocalCommand):
                   'Tests failed. Upload to PyPI aborted...')
         else:
             self.status('Uploading the package to PyPI via Twine…')
-            os.system('twine upload dist/*')
+            os.system('twine upload dist/* --repository pyopencl_extension ')
 
             self.status('Pushing git tags…')
             os.system('git tag v{0}'.format(about['__version__']))

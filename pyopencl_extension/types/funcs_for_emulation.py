@@ -16,7 +16,7 @@ class CPointerBase:
         pass
 
     def __str__(self):
-        return str(self.np[0])
+        return str(self.np)
 
     def __init__(self, size, type_c, mem=None, pos=0):
         self.type_c = type_c
