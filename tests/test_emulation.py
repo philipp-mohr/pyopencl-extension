@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,7 @@ from pytest import mark
 from pyopencl_extension import emulation, use_existing_file_for_emulation, Local, Scalar, \
     LocalArray, Types, Kernel, Global, Function, Program, Private, zeros, zeros_like, to_device, get_current_queue
 from pyopencl_extension.emulation import unparse_c_code_to_python, create_py_file_and_load_module
+from pyopencl_extension.framework import create_cl_files
 
 path_py_cl = Path(__file__).parent.joinpath('py_cl_kernels')
 

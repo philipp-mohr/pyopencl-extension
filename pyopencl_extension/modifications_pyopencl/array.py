@@ -2,14 +2,14 @@ import time
 
 import pyopencl as cl
 import pyopencl.array as cl_array
-
+from pyopencl.array import Array as ArrayCl # avoids warning in PyCharm IDE for missing attrbutes
 from pyopencl_extension.modifications_pyopencl.command_queue import CommandQueue, get_current_queue
 
 
-class Array(cl.array.Array):
+class Array(ArrayCl):
     @classmethod
-    def from_array(cls, array: cl_array.Array):
-        if isinstance(array, cl_array.Array):
+    def from_array(cls, array: ArrayCl):
+        if isinstance(array, ArrayCl):
             return Array((a := array).queue, a.shape, a.dtype, order="C", allocator=a.allocator,
                          data=a.data, offset=a.offset, strides=a.strides, events=a.events)
         elif isinstance(array, Array):
@@ -47,7 +47,7 @@ def to_device(ary, queue=None, allocator=None, async_=None, array_queue=cl_array
 def empty(shape, dtype, cq: CommandQueue = None, order="C", allocator=None,
           data=None, offset=0, strides=None, events=None, _flags=None):
     cq = get_current_queue() if cq is None else cq
-    res = Array.from_array(cl_array.Array(cq, shape, dtype, order, allocator))
+    res = Array.from_array(ArrayCl(cq, shape, dtype, order, allocator))
     res.add_latest_event('empty')
     return res
 

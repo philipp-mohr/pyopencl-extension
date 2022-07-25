@@ -495,9 +495,18 @@ class Program(Compilable):
         return '{}\n\n{}\n\n{}\n\n{}\n\n'.format(preamble_complex, defines, type_defs, functions)
 
 
+# by default not files are written to reduce disk usage
+_create_cl_file = False
+
+
+def create_cl_files(flag=True):
+    global _create_cl_file
+    _create_cl_file = flag
+
+
 def build_for_device(context: Context, template_to_be_compiled: str, file: str = None) -> cl.Program:
-    if file is not None:
-        write_string_to_file(template_to_be_compiled, file + '.cl', b_logging=False)
+    if _create_cl_file and file is not None:
+        write_string_to_file(template_to_be_compiled, file + '.cl', b_logging=True)
     try:
         program = cl.Program(context, str(template_to_be_compiled)).build()
     except Exception as error:
@@ -712,7 +721,9 @@ def compile_cl_program_device(program_model: Program, context: Context = None, f
 @MemoizeKernelFunctions
 def compile_cl_program_emulation(program_model: Program, context: Context, file: str = None,
                                  *args, **kwargs) -> Dict[str, Callable]:
-    code_py = unparse_c_code_to_python(code_c=program_model.rendered_template)
+    code_cl = program_model.rendered_template
+    write_string_to_file(code_cl, file + '.cl', b_logging=True)  # creates file with cl code
+    code_py = unparse_c_code_to_python(code_c=code_cl)
     module = create_py_file_and_load_module(code_py, file)
     kernels_model = program_model.kernels
     callable_kernels = {knl.name: module.__getattribute__(knl.name) for knl in kernels_model}
@@ -725,10 +736,7 @@ def compile_cl_program(program_model: Program, context: Context = None, emulate:
     # deal with file name
     if isinstance(file, Path):
         file = str(file)
-    if file is None and emulate:
-        raise ValueError('You intended to create no file by setting file=None. '
-                         'However, a file must be created for debugging.')  # todo can python debugging run without file?
-    elif file == '$default_path':
+    if file == '$default_path':
         file = str(program_model.get_default_dir_pycl_kernels().joinpath(program_model.kernels[0].name))
 
     if context is None:
