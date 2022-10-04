@@ -6,10 +6,10 @@ from pytest import mark
 
 from pyopencl_extension import Helpers, Kernel, Program, Global, Scalar, Types, Array, empty, zeros, to_device
 
-__author__ = "piveloper"
-__copyright__ = "26.03.2020, piveloper"
+__author__ = "P.Mohr"
+__copyright__ = "26.03.2020, P.Mohr"
 __version__ = "1.0"
-__email__ = "piveloper@gmail.com"
+__email__ = "philipp.mohr@tuhh.de"
 __doc__ = """This script implements the functionality to copy certain region_in of cl array on device."""
 
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype

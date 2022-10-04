@@ -16,11 +16,11 @@ from setuptools import find_packages, setup, Command
 NAME = 'pyopencl-extension'
 DESCRIPTION = 'This package extends PyOpenCl by providing an object-oriented kernel programming framework and ' \
               'debugging capabilities.'
-URL = 'https://github.com/piveloper/pyopencl-extension'
-EMAIL = 'piveloper@gmail.com'
-AUTHOR = 'piveloper'
+URL = 'https://github.com/philipp-mohr/pyopencl-extension'
+EMAIL = 'philipp.mohr@tuhh.de'
+AUTHOR = 'P.Mohr'
 REQUIRES_PYTHON = '>=3.10.0'
-VERSION = '0.1.8'
+VERSION = '0.2.0'
 
 # What packages are required for this module to be executed?
 REQUIRED = [

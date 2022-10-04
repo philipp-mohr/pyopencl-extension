@@ -1,7 +1,7 @@
-__author__ = "piveloper"
-__copyright__ = "10.02.2021, piveloper"
+__author__ = "P.Mohr"
+__copyright__ = "10.02.2021, P.Mohr"
 __version__ = "1.0"
-__email__ = "piveloper@gmail.com"
+__email__ = "philipp.mohr@tuhh.de"
 __doc__ = """This module contains the FFT operation. Radix 2 and """
 
 from dataclasses import dataclass

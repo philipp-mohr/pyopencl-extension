@@ -13,7 +13,7 @@ What makes pyopencl-extension special?
 
 The project is in an early development stage and actively maintained.
 For any feature requests/feedback/etc. you can get in touch via
-`Github <https://github.com/piveloper/pyopencl-extension/issues>`_ or by E-Mail (piveloper@gmail.com).
+`Github <https://github.com/philipp-mohr/pyopencl-extension/issues>`_ or by E-Mail (philipp.mohr@tuhh.de).
 
 Installation
 ------------
@@ -55,4 +55,4 @@ file 'some_operation.py', which can be inspected using a visual debugger:
 .. image:: https://i.imgur.com/Gfg9AtZ.png
     :width: 600
 
-More advanced examples can by found in the `tests hosted on  Github <https://github.com/piveloper/pyopencl-extension/tree/main/tests>`_.
+More advanced examples can by found in the `tests hosted on  Github <https://github.com/philipp-mohr/pyopencl-extension/tree/main/tests>`_.

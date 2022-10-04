@@ -1,7 +1,7 @@
-__author__ = "piveloper"
-__copyright__ = "26.03.2020, piveloper"
+__author__ = "P.Mohr"
+__copyright__ = "26.03.2020, P.Mohr"
 __version__ = "1.0"
-__email__ = "piveloper@gmail.com"
+__email__ = "philipp.mohr@tuhh.de"
 __doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
 
 import logging

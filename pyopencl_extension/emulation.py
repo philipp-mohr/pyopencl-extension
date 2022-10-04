@@ -13,10 +13,10 @@ from pycparser.c_ast import BinaryOp, ID, IdentifierType, Return, Constant, Assi
     StructRef, PtrDecl, TernaryOp, EmptyStatement
 from pycparserext.ext_c_parser import FuncDeclExt, PreprocessorLine, OpenCLCParser
 
-__author__ = "piveloper"
-__copyright__ = "26.03.2020, piveloper"
+__author__ = "P.Mohr"
+__copyright__ = "26.03.2020, P.Mohr"
 __version__ = "1.0"
-__email__ = "piveloper@gmail.com"
+__email__ = "philipp.mohr@tuhh.de"
 __doc__ = """This script includes helpful functions to extended PyOpenCl functionality."""
 
 # make sure emulation does not import anything from framework, to avoid circular imports
