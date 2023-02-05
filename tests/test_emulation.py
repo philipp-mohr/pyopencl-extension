@@ -526,3 +526,22 @@ def test_two_input_integer_functions(name, dtype):
     knl.compile()(a=a_cl)
     knl.compile(emulate=True)(a=a_emulation)
     assert np.all(a_cl.get() == a_emulation.get())
+
+
+
+import pyopencl_extension as cl
+
+
+def test_kernel_compile_on_call_and_abbreviations_work_item_builtin_fncs():
+    a = cl.zeros((10,), dtype=cl.int)
+    knl = cl.Kernel('my_knl', {'a': a},
+                    """a[gid0]+=1.0; a[gid0] = a[gid0];""",
+                    global_size=a.shape)
+    knl_py = knl.compile(emulate=True)
+    # dfs = {}
+    # knl = cl.Kernel('my_knl', {'a': a}, 'a[get_global_id(0)]+=1.0;', global_size=a.shape, defines=dfs).compile(emulate=True)
+    knl()  # compile on execution if not compiled yet
+    # knl(emulate=True)
+    assert a.get()[0] == 1.0
+    knl_py()
+    assert a.get()[0] == 2.0

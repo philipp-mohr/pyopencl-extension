@@ -282,7 +282,7 @@ def template(func: Union['Kernel', 'Function']) -> str:
 class FunctionBase(ABC):
     name: str = 'func'
     args: Dict[str, Union[TypesArgArrays, TypesArgScalar, Scalar, Global, Local, Private, Constant]] = \
-        field(default_factory=lambda: [])
+        field(default_factory=lambda: {})
     body: Union[List[str], str] = field(default_factory=lambda: [])
     replacements: Dict[str, TypesReplacement] = field(default_factory=lambda: {})
     type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
@@ -353,7 +353,7 @@ class Compilable:
 
 @dataclass
 class Kernel(FunctionBase, Compilable):
-    def compile(self, context: Context = None, emulate: bool = False, file='$default_path'):
+    def compile(self, context: Context = None, emulate: bool = False, file='$default_path', **kwargs):
         Program(kernels=[self]).compile(context=context, emulate=emulate, file=file)
         return self.callable_kernel
 
@@ -374,11 +374,9 @@ class Kernel(FunctionBase, Compilable):
         return '__kernel ${returns} ${name}(${args})'
 
     def __call__(self, global_size: KernelGridType = None, local_size: KernelGridType = None, **kwargs):
-        if self.callable_kernel is not None:
-            return self.callable_kernel(global_size=global_size, local_size=local_size, **kwargs)
-        else:
-            raise ValueError('Kernel has not been compiled yet.')
-
+        if self.callable_kernel is None:
+            self.compile() # compile kernel if not compiled
+        return self.callable_kernel(global_size=global_size, local_size=local_size, **kwargs)
 
 def _get_all_funcs(f: FunctionBase, flat_list=None) -> List[FunctionBase]:
     if flat_list is None:
@@ -459,7 +457,27 @@ class Program(Compilable):
             _preamble_generic_operations = preamble_generic_type_operations('complex', 'double')
         else:
             _preamble_generic_operations = preamble_generic_type_operations('real')
-        preamble_buff_t = f'{_preamble_precision}\n{_preamble_generic_operations}'
+
+        _preamble_wi_ops = """
+#define gid0 get_global_id(0)
+#define gid1 get_global_id(1)
+#define gid2 get_global_id(2)
+#define gs0 get_global_size(0)
+#define gs1 get_global_size(1)
+#define gs2 get_global_size(2)
+
+#define lid0 get_local_id(0)
+#define lid1 get_local_id(1)
+#define lid2 get_local_id(2)
+#define ls0 get_local_size(0)
+#define ls1 get_local_size(1)
+#define ls2 get_local_size(2)
+
+#define wid0 get_group_id(0)
+#define wid1 get_group_id(1)
+#define wid2 get_group_id(2)
+        """
+        preamble_buff_t = f'{_preamble_precision}\n{_preamble_generic_operations}\n{_preamble_wi_ops}'
 
         # join program typedefs with typedefs from kernels and functions
         # todo: consider replacing type strings directly to avoid name conflicts

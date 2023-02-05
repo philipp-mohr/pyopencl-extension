@@ -476,18 +476,18 @@ translation_cl_work_item_functions = {
 
 @dataclass
 class WorkItem:
-    global_id: Tuple[int]
-    global_size: Tuple[int]
-    local_size: Tuple[int]
-    local_memory_collection: List[dict]
+    global_id: tuple[int]
+    global_size: tuple[int]
+    local_size: tuple[int]
+    local_memory_collection: list[dict]
     _local: dict = field(init=False, default=None)
     _group_id_lin: int = None  #
     _scope: dict = None
-    work_items: List['WorkItem'] = None
-    local_id: Tuple[int] = None
-    num_groups: Tuple[int] = None
-    group_id: Tuple[int] = None
-    work_dim: Tuple[int] = None
+    work_items: list['WorkItem'] = None
+    local_id: tuple[int] = None
+    num_groups: tuple[int] = None
+    group_id: tuple[int] = None
+    work_dim: int = None
 
     def __post_init__(self):
         n_dim = self.get_work_dim()
@@ -649,7 +649,7 @@ regex_func_def = re.compile(r'#define[ ]+([\w]+)\(([\w, ]+)\)[ ]+([\w\.\(\)*\-+/
 # #define DFT2_TWIDDLE(a,b,t) { data_t tmp = t(a-b); a += b; b = tmp; }
 regex_func_def_multi_line = re.compile(r'(#define)([ ]+)([\w]+)(\()([\w, ]+)(\))([ ]+)(\{)(.+)(\})')
 regex_include = re.compile(r'#include[ ]+<([\w\-\.]+>)')  # '#include <pyopencl-complex.h>\n
-regex_numbers_with_conversion_characater = re.compile(r'([\d.]+)([fd])')
+regex_numbers_with_conversion_characater = re.compile(r'([\d.]+)([fd])')  # define PI 3.14159265359f
 # define SOME_ARRAY (int[]){0, 1, 2, 3}
 regex_array_definition = re.compile(r'#define[ ]+([\w]+)[ ]+\((.+)\[\]\)+\{(.+)\}')
 
@@ -757,10 +757,46 @@ def search_for_barrier(code_c, ast):
     return [_['name'] for _ in funcs_with_barrier + funcs_nested_barrier if not _['is_kernel']]
 
 
+def replace_builtin_macros(code_c):
+    """
+    remove macros with builtin function calls and replace usages:
+
+    if macros are built in functions, this method performs the replacement where those macros are used.
+
+    the motivation for this solution is that built-in function are accessed via the work item object wi, which cannot
+    be called at the location of definement.
+
+    #define gid0 get_global_id(0)
+    #define gid1 get_global_id(1)
+    #define gid2 get_global_id(2)
+
+    // the regex search matches against the listed cases
+    __kernel void my_knl(__global int *a)
+    {
+        a[gid0]+=1.0;
+         get_gid0_
+         gid0
+         gid0*
+         gid0/
+         =gid0)
+         gid0==
+        ==gid0
+    }
+    """
+    rgx = '#define[ ]+([\w]+)[ ]+(get_[\w\.\-e\(\)]+)[\s\n]'
+    defines_to_be_replaced = re.findall(rgx, code_c)
+    code_c = re.sub(rgx, '', code_c)
+    for name, val in defines_to_be_replaced:
+        code_c = re.sub('([\[\(\s\+\*\/\-\=]|==)' + f'({name})' + '([\]\)\s\+\*\/\-]|==)', r'\1' + val + r'\3', code_c)
+    return code_c
+
+
 def unparse_c_code_to_python(code_c: str) -> str:
     # todo prevents files: https://stackoverflow.com/questions/12644902/how-to-prevent-table-regeneration-in-ply
     # yacc.yacc(debug=False, write_tables=False)
     code_c = re.sub('#define[ ]+TP_ROOT[ ]+(cfloat|cdouble])[ ]*(\n)', '', code_c)  # removes TP_ROOT = cfloat
+
+    code_c = replace_builtin_macros(code_c)
 
     p = OpenCLCParser(lex_optimize=False, yacc_optimize=False)
     os.remove('yacctab.py')

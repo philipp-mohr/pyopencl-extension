@@ -50,6 +50,10 @@ def test_slice():
                    (2, 0, None, 1))
     res = Slice[0:0]
     assert res == ((0, 0, 0, 1),)
+    res = Slice[:0]
+    assert res == ((0, 0, 0, 1),)
+    res = Slice[:, :0]
+    assert res == ((0, 0, 0, 1),)
 
 
 class CopyArrayRegion:

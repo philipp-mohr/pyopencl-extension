@@ -37,6 +37,22 @@ def setup_file_cl_types():
         file.write(content)
 
 
+def setup_file_cl_types_for_import():
+    # preamble_typedefs_np_c = '\n'.join([f'{v} = np.dtype(\'{k}\').type' for k, v in np_to_c_type_name.items()])
+    fields = '\n'.join([f'   {t}:Union[np.dtype, Callable]=cltypes.{t}' for t in all_vec_number_types])
+    class_def1 = '@dataclass(frozen=True)\n' \
+                 'class ClTypesVector:\n' + fields + '\n'
+
+    vector = '\n'.join([f'{t}=cltypes.{t}' for t in all_vec_number_types])
+    scalar = '\n'.join([f'{t}=cltypes.{t}' for t in all_scalar_number_types])
+
+    import_cltypes = 'from pyopencl_extension.modifications_pyopencl import cltypes\n'
+
+    content = '\n'.join([import_cltypes, vector , scalar])
+    with open(auto_gen_dir.joinpath('cl_types_import.py'), 'w+') as file:
+        file.write(content)
+
+
 def setup_file_include_for_emulation():
     # preamble_typedefs_np_c = '\n'.join([f'{v} = np.dtype(\'{k}\').type' for k, v in np_to_c_type_name.items()])
     python_types = '\n'.join(['int_ = int', 'float_=float'])
@@ -51,5 +67,6 @@ def setup_file_include_for_emulation():
 
 
 if __name__ == '__main__':
+    setup_file_cl_types_for_import()
     setup_file_include_for_emulation()
     setup_file_cl_types()
