@@ -1,4 +1,5 @@
 from pyopencl_extension.modifications_pyopencl import cltypes
+import numpy as np
 
 char2=cltypes.char2
 char4=cltypes.char4

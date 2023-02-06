@@ -12,9 +12,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Union, Tuple, List, Dict, Callable
+from typing import Union, Tuple, List, Callable
 
 import numpy as np
+import numpy.typing as npt
 import pyastyle
 from mako import exceptions
 from mako.template import Template
@@ -35,7 +36,7 @@ from pyopencl_extension.emulation import create_py_file_and_load_module, unparse
 @dataclass
 class LocalArray:
     shape: int
-    dtype: np.dtype
+    dtype: npt.DTypeLike
     cl_local_memory: cl.LocalMemory = field(init=False, default=None)
 
     def __post_init__(self):
@@ -166,7 +167,7 @@ class ArgBase(ABC):
 
     @property
     @abstractmethod
-    def dtype(self) -> np.dtype:
+    def dtype(self) -> npt.DTypeLike:
         # __global, __local, __private, __constant
         pass
 
@@ -180,9 +181,9 @@ class ArgBase(ABC):
 
 @dataclass
 class Scalar(ArgBase):
-    dtype: np.dtype = field(default=Types.int)
+    dtype: npt.DTypeLike = field(default=Types.int)
     address_space_qualifier: str = field(default='')
-    default: np.dtype = field(init=False, default=None)
+    default: npt.DTypeLike = field(init=False, default=None)
 
     def __post_init__(self):
         if np.isscalar(self.dtype):
@@ -197,7 +198,7 @@ class Scalar(ArgBase):
 
 @dataclass
 class Pointer(ArgBase, ABC):
-    dtype: np.dtype = field(default=Types.int)
+    dtype: npt.DTypeLike = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__global')
 
 
@@ -208,7 +209,7 @@ class Private(Pointer):
 
 @dataclass
 class Local(Pointer):
-    dtype: Union[np.dtype, LocalArray] = field(default=Types.int)
+    dtype: npt.DTypeLike|LocalArray = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__local')
     order_in_memory: OrderInMemory = OrderInMemory.C_CONTIGUOUS
     default: cl.LocalMemory = field(init=False, default=None)
@@ -221,7 +222,7 @@ class Local(Pointer):
 
 @dataclass
 class Global(Pointer):
-    dtype: Union[np.dtype, TypesClArray] = field(default=Types.int)
+    dtype: npt.DTypeLike|TypesClArray = field(default=Types.int)
     read_only: bool = False  # adds 'const' qualifier to let compiler know that global array is never written
     order_in_memory: OrderInMemory = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__global')
@@ -246,10 +247,10 @@ class Constant(Pointer):
 
     https://stackoverflow.com/questions/17991714/opencl-difference-between-constant-memory-and-const-global-memory/50931783
     """
-    dtype: Union[np.dtype, TypesClArray] = field(default=Types.int)
+    dtype: npt.DTypeLike|TypesClArray = field(default=Types.int)
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__constant')
-    default: TypesClArray = field(init=False, default='')
+    default: npt.DTypeLike| TypesClArray = field(init=False, default='')
 
     def __post_init__(self):
         if isinstance(self.dtype, TypesClArray.__args__):
@@ -281,12 +282,12 @@ def template(func: Union['Kernel', 'Function']) -> str:
 @dataclass
 class FunctionBase(ABC):
     name: str = 'func'
-    args: Dict[str, Union[TypesArgArrays, TypesArgScalar, Scalar, Global, Local, Private, Constant]] = \
+    args: dict[str, Union[TypesArgArrays, TypesArgScalar, Scalar, Global, Local, Private, Constant]] = \
         field(default_factory=lambda: {})
     body: Union[List[str], str] = field(default_factory=lambda: [])
-    replacements: Dict[str, TypesReplacement] = field(default_factory=lambda: {})
-    type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})  # todo
-    defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
+    replacements: dict[str, TypesReplacement] = field(default_factory=lambda: {})
+    type_defs: dict[str, npt.DTypeLike] = field(default_factory=lambda: {})  # todo
+    defines: dict[str, TypesDefines] = field(default_factory=lambda: {})
     functions: List['Function'] = field(default_factory=lambda: [])
 
     def __post_init__(self):
@@ -332,7 +333,7 @@ class Function(FunctionBase):
     def template(self) -> str:
         return template(self)
 
-    returns: np.dtype = field(default_factory=lambda: np.dtype(np.void))
+    returns: npt.DTypeLike = field(default_factory=lambda: np.dtype(np.void))
 
     def __str__(self) -> str:
         return super().__str__() + str(self.returns)
@@ -359,7 +360,7 @@ class Kernel(FunctionBase, Compilable):
 
     global_size: KernelGridType = None
     local_size: KernelGridType = None
-    returns: np.dtype = field(default_factory=lambda: np.dtype(np.void), init=False)
+    returns: npt.DTypeLike = field(default_factory=lambda: np.dtype(np.void), init=False)
     callable_kernel: 'CallableKernel' = field(default_factory=lambda: None, init=False)
 
     def __str__(self) -> str:
@@ -414,8 +415,8 @@ class Program(Compilable):
 
     functions: List[Function] = field(default_factory=lambda: [])
     kernels: List[Kernel] = field(default_factory=lambda: [])
-    defines: Dict[str, TypesDefines] = field(default_factory=lambda: {})
-    type_defs: Dict[str, np.dtype] = field(default_factory=lambda: {})
+    defines: dict[str, TypesDefines] = field(default_factory=lambda: {})
+    type_defs: dict[str, npt.DTypeLike] = field(default_factory=lambda: {})
 
     @staticmethod
     def _arg_to_str_for_hash(name, arg: ArgBase):
@@ -698,7 +699,7 @@ class ProgramContainer:
     program_model: Program
     file: str
     init: CommandQueue
-    callable_kernels: Dict[str, Union[CallableKernelEmulation, CallableKernelDevice]] = None
+    callable_kernels: dict[str, Union[CallableKernelEmulation, CallableKernelDevice]] = None
 
     def __getattr__(self, name) -> CallableKernel:
         if name in self.callable_kernels:
@@ -722,7 +723,7 @@ class MemoizeKernelFunctions:
 
 
 @MemoizeKernelFunctions
-def compile_cl_program_device(program_model: Program, context: Context = None, file: str = None) -> Dict[str, Kernel]:
+def compile_cl_program_device(program_model: Program, context: Context = None, file: str = None) -> dict[str, Kernel]:
     code_cl = program_model.rendered_template
     program = build_for_device(context, code_cl, file)
     kernels_model = program_model.kernels
@@ -738,7 +739,7 @@ def compile_cl_program_device(program_model: Program, context: Context = None, f
 
 @MemoizeKernelFunctions
 def compile_cl_program_emulation(program_model: Program, context: Context, file: str = None,
-                                 *args, **kwargs) -> Dict[str, Callable]:
+                                 *args, **kwargs) -> dict[str, Callable]:
     code_cl = program_model.rendered_template
     write_string_to_file(code_cl, file + '.cl', b_logging=True)  # creates file with cl code
     code_py = unparse_c_code_to_python(code_c=code_cl)
@@ -829,7 +830,7 @@ class Helpers:
     # helpers for using vector types
 
     @staticmethod
-    def get_vec_dtype(dtype_vec: np.dtype, dtype_scalar: np.dtype) -> np.dtype:
+    def get_vec_dtype(dtype_vec: npt.DTypeLike, dtype_scalar: npt.DTypeLike) -> npt.DTypeLike:
         if number_vec_elements_of_cl_type(dtype_vec) == 1:
             return dtype_scalar
         else:
@@ -837,7 +838,7 @@ class Helpers:
             return getattr(Types, c_name)
 
     @staticmethod
-    def array_indexing_for_vec_type(array: str, index: str, dtype: np.dtype):
+    def array_indexing_for_vec_type(array: str, index: str, dtype: npt.DTypeLike):
         """
         https://stackoverflow.com/questions/24746221/using-a-vector-as-an-array-index
         e.g.
@@ -861,7 +862,7 @@ class Helpers:
                                                               for i in range(number_vec_elements_of_cl_type(dtype))]))
 
     @staticmethod
-    def command_const_vec_type(param: Union[str, float, int], dtype: np.dtype) -> str:
+    def command_const_vec_type(param: Union[str, float, int], dtype: npt.DTypeLike) -> str:
         """
         param = 1.5, dtype=ClTypes.float -> 'convert_float(1.5)'
         param = 1.5, dtype=ClTypes.float2 -> '(float2)(convert_float(1.5), convert_float(1.5))
@@ -879,7 +880,7 @@ class Helpers:
                                                                           param)] * get_vec_size(dtype)))
 
     @staticmethod
-    def command_vec_sum(var_name: str, dtype: np.dtype) -> str:
+    def command_vec_sum(var_name: str, dtype: npt.DTypeLike) -> str:
         """
         Cases:
         float var_name -> return 'var_name'
