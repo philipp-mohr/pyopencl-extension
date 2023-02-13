@@ -787,7 +787,7 @@ def replace_builtin_macros(code_c):
     defines_to_be_replaced = re.findall(rgx, code_c)
     code_c = re.sub(rgx, '', code_c)
     for name, val in defines_to_be_replaced:
-        code_c = re.sub('([\[\(\s\+\*\/\-\=]|==)' + f'({name})' + '([\]\)\s\+\*\/\-]|==)', r'\1' + val + r'\3', code_c)
+        code_c = re.sub('([\[\(\s\+\*\/\-\=]|==)' + f'({name})' + '([\]\)\s\+\*\/\-\;]|==)', r'\1' + val + r'\3', code_c)
     return code_c
 
 

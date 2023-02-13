@@ -47,9 +47,13 @@ def setup_file_cl_types_for_import():
     scalar = '\n'.join([f'{t}=cltypes.{t}' for t in all_scalar_number_types])
 
     import_cltypes = 'from pyopencl_extension.modifications_pyopencl import cltypes\n' \
-                     'import numpy as np\n'
+                     'import numpy as np'
 
-    content = '\n'.join([import_cltypes, vector , scalar])
+    content = '\n'.join([import_cltypes, vector , scalar,
+                         """
+cfloat=np.dtype(np.complex64)
+cdouble=np.dtype(np.complex128)
+                         """])
     with open(auto_gen_dir.joinpath('cl_types_import.py'), 'w+') as file:
         file.write(content)
 

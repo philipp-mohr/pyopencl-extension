@@ -1,6 +1,5 @@
 from pyopencl_extension.modifications_pyopencl import cltypes
 import numpy as np
-
 char2=cltypes.char2
 char4=cltypes.char4
 char8=cltypes.char8
@@ -56,3 +55,7 @@ ulong=cltypes.ulong
 half=cltypes.half
 float=cltypes.float
 double=cltypes.double
+
+cfloat=np.dtype(np.complex64)
+cdouble=np.dtype(np.complex128)
+                         
