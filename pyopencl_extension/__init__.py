@@ -15,3 +15,4 @@ from .components.copy_array_region import (CopyArrayRegion, Slice, cl_set)
 from .components.fft import (Fft, IFft, FftStageBuilder)
 from .components.sumalongaxis import SumAlongAxis
 from .components.transpose import Transpose
+from .modifications_pyopencl.command_queue import QueueProperties

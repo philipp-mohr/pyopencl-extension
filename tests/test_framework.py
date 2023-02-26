@@ -254,9 +254,9 @@ def test_multiple_command_queues():
 def test_hash_array():
     ary = zeros(shape=(100,), dtype=Types.float)
     hash_ary = HashArray(ary)
-    a_hash = hash_ary.hash
+    a_hash = hash_ary.hash.copy()
     hash_ary.set(np.ones(hash_ary.shape).astype(hash_ary.dtype))
-    b_hash = hash_ary.hash
+    b_hash = hash_ary.hash.copy()
     assert a_hash != b_hash
     hash_ary[0] = 5
     c_hash = hash_ary.hash

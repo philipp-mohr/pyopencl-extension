@@ -209,7 +209,7 @@ class Private(Pointer):
 
 @dataclass
 class Local(Pointer):
-    dtype: npt.DTypeLike|LocalArray = field(default=Types.int)
+    dtype: npt.DTypeLike | LocalArray = field(default=Types.int)
     address_space_qualifier: str = field(init=False, default='__local')
     order_in_memory: OrderInMemory = OrderInMemory.C_CONTIGUOUS
     default: cl.LocalMemory = field(init=False, default=None)
@@ -222,7 +222,7 @@ class Local(Pointer):
 
 @dataclass
 class Global(Pointer):
-    dtype: npt.DTypeLike|TypesClArray = field(default=Types.int)
+    dtype: npt.DTypeLike | TypesClArray = field(default=Types.int)
     read_only: bool = False  # adds 'const' qualifier to let compiler know that global array is never written
     order_in_memory: OrderInMemory = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__global')
@@ -247,10 +247,10 @@ class Constant(Pointer):
 
     https://stackoverflow.com/questions/17991714/opencl-difference-between-constant-memory-and-const-global-memory/50931783
     """
-    dtype: npt.DTypeLike|TypesClArray = field(default=Types.int)
+    dtype: npt.DTypeLike | TypesClArray = field(default=Types.int)
     order_in_memory: str = OrderInMemory.C_CONTIGUOUS
     address_space_qualifier: str = field(init=False, default='__constant')
-    default: npt.DTypeLike| TypesClArray = field(init=False, default='')
+    default: npt.DTypeLike | TypesClArray = field(init=False, default='')
 
     def __post_init__(self):
         if isinstance(self.dtype, TypesClArray.__args__):
@@ -376,8 +376,9 @@ class Kernel(FunctionBase, Compilable):
 
     def __call__(self, global_size: KernelGridType = None, local_size: KernelGridType = None, **kwargs):
         if self.callable_kernel is None:
-            self.compile() # compile kernel if not compiled
+            self.compile()  # compile kernel if not compiled
         return self.callable_kernel(global_size=global_size, local_size=local_size, **kwargs)
+
 
 def _get_all_funcs(f: FunctionBase, flat_list=None) -> List[FunctionBase]:
     if flat_list is None:
@@ -787,6 +788,37 @@ def int_safe(val: float):
         raise ValueError(f'val={val} is no integer')
 
 
+class MutableInteger:
+    # e.g. if HashArray is reshaped, a mutable integer is required to preserve reference to original integer
+    def __init__(self, val: int):
+        self.val = val
+
+    def __eq__(self, other: 'MutableInteger'):
+        if isinstance(other, MutableInteger):
+            return self.val == other.val
+        elif isinstance(o, int):
+            raise ValueError('Comparison to integers is not allowed to avoid mistakes that are difficult to debug.')
+        else:
+            return False
+
+    def __ne__(self, o: 'MutableInteger') -> bool:
+        if isinstance(o, MutableInteger):
+            return self.val != o.val
+        elif isinstance(o, int):
+            raise ValueError('Comparison to integers is not allowed to avoid mistakes that are difficult to debug.')
+        else:
+            return True
+
+    def __str__(self):
+        return str(self.val)
+
+    def __copy__(self):
+        return MutableInteger(self.val)
+
+    def copy(self):
+        return self.__copy__()
+
+
 class HashArray(Array):
     def __init__(self, *args, **kwargs):
         if isinstance(args[0], TypesClArray.__args__):
@@ -795,7 +827,8 @@ class HashArray(Array):
                              data=a.data, offset=a.offset, strides=a.strides, events=a.events)
         else:
             super().__init__(*args, **kwargs)
-        self.hash = hash(self.get().tobytes())
+        self.hash = MutableInteger(0)
+        self.update_hash()
 
     def __setitem__(self, key, value):
         super().__setitem__(key, value)
@@ -807,7 +840,13 @@ class HashArray(Array):
         return res
 
     def update_hash(self):
-        self.hash = hash(self.get().tobytes())
+        self.hash.val = hash(self.get().tobytes())
+
+    def reshape(self, *shape, **kwargs):
+        _hash = self.hash
+        _reshaped = super().reshape(*shape, **kwargs)
+        _reshaped.hash = _hash
+        return _reshaped
 
 
 class Helpers:
