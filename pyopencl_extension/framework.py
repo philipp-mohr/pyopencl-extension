@@ -31,6 +31,7 @@ from pyopencl_extension.types.auto_gen.cl_types import ClTypesScalar
 from pyopencl_extension.types.utilities_np_cl import c_name_from_dtype, scalar_type_from_vec_type, \
     get_vec_size, Types, number_vec_elements_of_cl_type, VEC_INDICES
 from pyopencl_extension.emulation import create_py_file_and_load_module, unparse_c_code_to_python
+import logging
 
 
 @dataclass
@@ -355,7 +356,11 @@ class Compilable:
 @dataclass
 class Kernel(FunctionBase, Compilable):
     def compile(self, context: Context = None, emulate: bool = False, file='$default_path', **kwargs):
-        Program(kernels=[self]).compile(context=context, emulate=emulate, file=file)
+        # if kernel is compiled put defines on top of program
+        defines = self.defines
+        self.defines = {}  # ensures that defines are not placed before kernel another time
+        Program(defines=defines, kernels=[self]).compile(context=context, emulate=emulate, file=file)
+        self.defines = defines  # reconstructs defines
         return self.callable_kernel
 
     global_size: KernelGridType = None
