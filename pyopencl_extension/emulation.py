@@ -23,8 +23,6 @@ __doc__ = """This script includes helpful functions to extended PyOpenCl functio
 # framework does depends on emulation and not the other way around.
 from pyopencl._cl import LocalMemory
 
-from pytest import mark
-
 from pyopencl_extension.types.funcs_for_emulation import init_array, CPointer, CPointerVec
 from pyopencl_extension.helpers.general import write_string_to_file
 from pyopencl_extension import Array
@@ -637,7 +635,8 @@ def cl_kernel(kernel):
                     [next(knl) for knl in blocking_kernels]
                 except StopIteration:
                     break
-        [arg.set(args_python[idx].memory) if isinstance(arg, arrays_cls) else arg for idx, arg in enumerate(args)]
+        [arg.set(args_python[idx].memory.reshape(arg.shape)) if isinstance(arg, arrays_cls) else arg
+         for idx, arg in enumerate(args)]
 
     return wrapper_loop_over_grid
 
@@ -914,13 +913,3 @@ def compute_tuple_idx(idx_lin, dimensions):
         i = n_dim - 1 - _i
         idx_lin, idx_tuple[i] = divmod(idx_lin, dimensions[i])
     return tuple(idx_tuple)
-
-
-@mark.parametrize('idx_tuple,dimensions, idx_lin_ref', [((1, 2, 0), (2, 4, 2), 12),
-                                                        ((1, 2), (2, 4), 6),
-                                                        ((1,), (2,), 1)])
-def test_compute_tuple_from_idx_linear(idx_tuple, dimensions, idx_lin_ref):
-    idx_lin = compute_linear_idx(idx_tuple, dimensions)
-    assert idx_lin == idx_lin_ref
-    idx_tuple2 = compute_tuple_idx(idx_lin, dimensions)
-    assert idx_tuple == idx_tuple2

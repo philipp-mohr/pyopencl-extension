@@ -801,7 +801,7 @@ class MutableInteger:
     def __eq__(self, other: 'MutableInteger'):
         if isinstance(other, MutableInteger):
             return self.val == other.val
-        elif isinstance(o, int):
+        elif isinstance(other, int):
             raise ValueError('Comparison to integers is not allowed to avoid mistakes that are difficult to debug.')
         else:
             return False

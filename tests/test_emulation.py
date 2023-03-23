@@ -7,7 +7,8 @@ from pytest import mark
 
 from pyopencl_extension import emulation, use_existing_file_for_emulation, Local, Scalar, \
     LocalArray, Types, Kernel, Global, Function, Program, Private, zeros, zeros_like, to_device, get_current_queue
-from pyopencl_extension.emulation import unparse_c_code_to_python, create_py_file_and_load_module
+from pyopencl_extension.emulation import unparse_c_code_to_python, create_py_file_and_load_module, compute_linear_idx, \
+    compute_tuple_idx
 from pyopencl_extension.framework import create_cl_files
 
 path_py_cl = Path(__file__).parent.joinpath('py_cl_kernels')
@@ -545,3 +546,13 @@ def test_kernel_compile_on_call_and_abbreviations_work_item_builtin_fncs():
     assert a.get()[0] == 1.0
     knl_py()
     assert a.get()[0] == 2.0
+
+
+@mark.parametrize('idx_tuple,dimensions, idx_lin_ref', [((1, 2, 0), (2, 4, 2), 12),
+                                                        ((1, 2), (2, 4), 6),
+                                                        ((1,), (2,), 1)])
+def test_compute_tuple_from_idx_linear(idx_tuple, dimensions, idx_lin_ref):
+    idx_lin = compute_linear_idx(idx_tuple, dimensions)
+    assert idx_lin == idx_lin_ref
+    idx_tuple2 = compute_tuple_idx(idx_lin, dimensions)
+    assert idx_tuple == idx_tuple2
