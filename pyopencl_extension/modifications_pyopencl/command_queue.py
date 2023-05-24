@@ -56,7 +56,6 @@ class CommandQueue(cl.CommandQueue):
     def context(self) -> Context:
         return self._context
 
-
     def get_profiler(self) -> 'Profiling':
         self.t_ns.profiling_finished = time.perf_counter_ns()
         self.t_ns.compilation = self.context.time_compilation_ns
@@ -235,3 +234,10 @@ def get_current_queue(*args, **kwargs) -> CommandQueue:
 def get_device(device_id: int) -> cl.Device:
     return get_devices()[device_id]
 
+
+def activate_profiling(**kwargs):
+    set_current_queue(create_queue(queue_properties=QueueProperties.PROFILING_ENABLE, **kwargs))
+
+
+def evaluate_profiling():
+    get_current_queue().get_profiler().show_histogram_cumulative_kernel_times()
