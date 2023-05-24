@@ -328,6 +328,8 @@ def test_add_functions_inside_function_or_kernel_definition():
 
 
 def test_conversion_knl_fnc_args_with_no_pointer_format():
+    # import pyopencl_extension as cl
+    # cl.activate_profiling()
     a_np = np.array([0.1, 0.2], dtype=Types.float)
     b_cl = zeros(shape=(2,), dtype=Types.float)
     fnc = Function('copy_fnc',
@@ -342,4 +344,5 @@ def test_conversion_knl_fnc_args_with_no_pointer_format():
                  """, functions=[fnc], global_size=b_cl.shape)
     knl.compile()
     knl()
+    # cl.evaluate_profiling()
     assert np.all(a_np == b_cl.get())

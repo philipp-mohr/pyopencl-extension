@@ -1,6 +1,6 @@
 from .modifications_pyopencl.context import Context, get_devices
 from .modifications_pyopencl.command_queue import Profiling, CommandQueue, create_queue, get_device, \
-    set_current_queue, get_current_queue, set_default_device
+    set_current_queue, get_current_queue, set_default_device, activate_profiling, evaluate_profiling
 from .modifications_pyopencl.array import zeros, zeros_like, empty, Array, empty_like, to_device
 from .emulation import use_existing_file_for_emulation
 from .framework import (Private, Scalar, Local, Global, Constant, Function,

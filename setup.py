@@ -20,7 +20,7 @@ URL = 'https://github.com/philipp-mohr/pyopencl-extension'
 EMAIL = 'philipp.mohr@tuhh.de'
 AUTHOR = 'P.Mohr'
 REQUIRES_PYTHON = '>=3.10.0'
-VERSION = '0.2.6'
+VERSION = '0.2.7'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
