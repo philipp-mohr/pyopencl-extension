@@ -453,61 +453,63 @@ def _deal_with_unary_op(node: UnaryOp):
 
 
 def _unparse(node: Node) -> Container:
-    if isinstance(node, FuncDef):
-        res = _deal_with_func_def_node(node)
-    elif isinstance(node, FuncDeclExt):
-        res = _unparse_func_header(node)
-    elif isinstance(node, TypeDecl):
-        res = node.declname
-    elif isinstance(node, FuncCall):
-        res = _deal_with_func_call(node)
-    elif isinstance(node, ExprList):
-        res = ', '.join([_unparse(expr) for expr in node.exprs])
-    elif isinstance(node, Compound):  # e.g. body of a function or a for loop
-        res = _deal_with_compound(node)
-    elif isinstance(node, ArrayRef):
-        res = _deal_with_arrayref(node)
-    elif isinstance(node, For):
-        res = _deal_with_for(node)
-    elif isinstance(node, While):
-        res = 'while {}:\n{}'.format(_unparse(node.cond), py_indent(_unparse(node.stmt)))
-    elif isinstance(node, Break):
-        res = 'break'
-    elif isinstance(node, If):
-        res = _deal_with_if(node)
-    elif isinstance(node, Decl):
-        res = _deal_with_decl(node)
-    elif isinstance(node, ArrayDecl):
-        res = _deal_with_array_decl(node)
-    elif isinstance(node, Assignment):
-        res = _deal_with_assignment(node)
-    elif isinstance(node, Constant):
-        res = node.value
-    elif isinstance(node, Return):
-        res = 'return ' + _unparse(node.expr)
-    elif isinstance(node, BinaryOp):
-        res = _deal_with_binary_op(node)
-    elif isinstance(node, ID):
-        res = node.name
-    elif isinstance(node, IdentifierType):
-        res = ''
-    elif isinstance(node, str):
-        res = node
-    elif isinstance(node, Cast):
-        type_cl = node.to_type.type.type.names[0]
-        res = '{}({})'.format(type_cl, _unparse(node.expr))
-    elif isinstance(node, UnaryOp):
-        res = _deal_with_unary_op(node)
-    elif isinstance(node, StructRef):
-        res = f'{_unparse(node.name)}.{_unparse(node.field)}'
-    elif isinstance(node, TernaryOp):
-        res = f'{_unparse(node.iftrue)} if {_unparse(node.cond)} else {_unparse(node.iffalse)}'
-    elif isinstance(node, EmptyStatement):
-        res = 'pass'
-    elif node is None:
-        res = ''
-    else:
-        raise ValueError('Node type not considered')
+    match node:
+        case FuncDef():
+            res = _deal_with_func_def_node(node)
+        case FuncDeclExt():
+            res = _unparse_func_header(node)
+        case TypeDecl():
+            res = node.declname
+        case FuncCall():
+            res = _deal_with_func_call(node)
+        case ExprList():
+            res = ', '.join([_unparse(expr) for expr in node.exprs])
+        case Compound(): # e.g. body of a function or a for loop
+            res = _deal_with_compound(node)
+        case ArrayRef():
+            res = _deal_with_arrayref(node)
+        case For():
+            res = _deal_with_for(node)
+        case While():
+            res = 'while {}:\n{}'.format(_unparse(node.cond), py_indent(_unparse(node.stmt)))
+        case Break():
+            res = 'break'
+        case If():
+            res = _deal_with_if(node)
+        case Decl():
+            res = _deal_with_decl(node)
+        case ArrayDecl():
+            res = _deal_with_array_decl(node)
+        case Assignment():
+            res = _deal_with_assignment(node)
+        case Constant():
+            res = node.value
+        case Return():
+            res = 'return ' + _unparse(node.expr)
+        case BinaryOp():
+            res = _deal_with_binary_op(node)
+        case ID():
+            res = node.name
+        case IdentifierType():
+            res = ''
+        case str():
+            res = node
+        case Cast():
+            type_cl = node.to_type.type.type.names[0]
+            res = '{}({})'.format(type_cl, _unparse(node.expr))
+        case UnaryOp():
+            res = _deal_with_unary_op(node)
+        case StructRef():
+            res = f'{_unparse(node.name)}.{_unparse(node.field)}'
+        case TernaryOp():
+            res = f'{_unparse(node.iftrue)} if {_unparse(node.cond)} else {_unparse(node.iffalse)}'
+        case EmptyStatement():
+            res = 'pass'
+        case None:
+            res = ''
+        case _:
+            raise ValueError('Node type not considered')
+
     if not isinstance(res, Container):
         res = Container(res)
     return res
