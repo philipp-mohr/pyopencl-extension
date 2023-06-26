@@ -1,4 +1,5 @@
 import inspect
+import logging
 import os
 import re
 from collections import namedtuple
@@ -209,215 +210,283 @@ def _unparse_knl_header(node):
     return _unparse_header(args, node)
 
 
+def _deal_with_func_def_node(node):
+    # check if function is kernel
+
+    if len(node.decl.funcspec) > 0:
+        if node.decl.funcspec[0] == '__kernel':
+            header = _unparse_knl_header(node.decl.type)
+            header = f'@cl_kernel\n{header}'
+        else:
+            raise ValueError('Func spec not supported')
+    else:
+        header = _unparse(node.decl.type)
+
+    body = _unparse(node.body)
+    final_yield = ''
+    if len(node.decl.funcspec) > 0:
+        if node.decl.funcspec[0] == '__kernel':
+            final_yield = py_indent('yield  # required to model local memory behaviour correctly')
+    if final_yield == '':
+        function = '{}\n{}'.format(header, py_indent(body))
+    else:
+        function = '{}\n{}\n{}'.format(header, py_indent(body), final_yield)
+    return function
+
+
+def _deal_with_func_call(node: FuncCall):
+    if isinstance(node.name, ID):
+        func_name = node.name.name
+        # todo: use funcs_for_cl_emulation.py for adding support for all cl functions
+        if func_name.startswith('convert_'):
+            """
+            alternative:
+            def convert(value, dtype='int32'):
+                return np.dtype(dtype).type(value)
+            """
+            type_name = re.search(r'(convert_)([\w]+)', node.name.name).group(2)
+            res = '{}({})'.format(type_name, _unparse(node.args))
+        elif 'cos' == func_name:
+            res = 'np.cos({})'.format(_unparse(node.args))
+        elif 'sin' == func_name:
+            res = 'np.sin({})'.format(_unparse(node.args))
+        elif func_name in translation_cl_work_item_functions:
+            res = 'wi.{}[{}]'.format(translation_cl_work_item_functions[func_name], _unparse(node.args))
+        elif 'barrier' == func_name:
+            if isinstance((_ := node.args.exprs[0]), BinaryOp):
+                barrier_name = f'{node.args.exprs[0].left.name}|{node.args.exprs[0].right.name}'
+            else:
+                barrier_name = node.args.exprs[0].name
+            res = f'\nwi.scope = locals()  # saves reference to objects in scope for debugging other wi in wg \n' \
+                  f'yield  # yield models the behaviour of barrier({barrier_name})\n'
+        else:
+            if func_name in (_ := MacroWithArguments.names_py_macro):
+                args = _unparse(node.args).split(', ')
+                format_arg = ', '.join([f'{macro_arg}="{args[i]}"' for i, macro_arg in enumerate(_[func_name])])
+                res = f'exec({func_name}.format({format_arg}))'
+            elif func_name in names_func_require_work_item:
+                res = '{}({}, wi=wi)'.format(_unparse(node.name), _unparse(node.args))
+                if func_name in names_func_has_barrier:
+                    res = f'(yield from {res})'
+            else:
+                res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
+    else:
+        res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
+    return res
+
+
+def _deal_with_compound(node: Compound):
+    # compound = [_unparse(block_item) for block_item in node.block_items]
+    # loop makes debugging easier. Set breakpoint in loop, then remove BP and step over to get to target line
+    compound = []
+    for block_item in node.block_items:
+        if isinstance(block_item, UnaryOp):  # number++; should translate to number +=1 and not numbernumber+=1
+            compound.append(_unparse(block_item).only_use_prefix_postfix())
+        else:
+            compound.append(_unparse(block_item).wrap_code_with_prefix_postfix())
+    res = '\n'.join(compound)
+    return res
+
+
+def _deal_with_arrayref(node: ArrayRef):
+    # if isinstance(node.subscript, UnaryOp):  # e.g. array[pos++] = 5; -> pos+=1; \n array[pos] = 5;
+    #     unary_op = _unparse(node.subscript)
+    #     res = '{}[{}]'.format(_unparse(node.name), node.subscript.expr.name)
+    # else:
+    array_index = _unparse(node.subscript)
+    res = Container('{}[{}]'.format(_unparse(node.name), array_index))
+    res.add_container_pre_post_fix(array_index)
+    return res
+
+
+def _deal_with_for(node: For):
+    # only for loop considered of style: for(int i=start; i<=stop; i++)
+    #                                 or for(int i>=stop; i>=0; i--)
+    detect_inconsistent_for_loop_header_variable(node)
+
+    var = node.init.decls[0].name
+    right = _unparse(node.cond.right)
+    left = _unparse(node.cond.left)
+    cond_op = node.cond.op
+    if right == var:  # e.g. 5>=i -> i<= 5
+        right = left
+        left = var
+        cond_op = {'!=': '!=',
+                   '<=': '>=',
+                   '>=': '<=',
+                   '>': '<',
+                   '<': '>'}[cond_op]
+    stop = right
+    op = node.next.op
+    stop = {'p++': {'!=': stop,
+                    '<': stop,
+                    '<=': stop + '+1'},
+            'p--': {'!=': stop,
+                    '>': stop,
+                    '>=': stop + '-1'}}[op][cond_op]
+    if op == 'p++':
+        step = 1
+    elif op == 'p--':
+        step = -1
+    else:
+        raise NotImplementedError()
+    loop_header = '{var} in range({start}, {stop}, {step})'.format(var=var,
+                                                                   start=_unparse(node.init.decls[0].init),
+                                                                   stop=stop,
+                                                                   step=step)
+    loop_body = _unparse(node.stmt)
+    res = 'for {}:\n{}'.format(loop_header, py_indent(loop_body))
+    return res
+
+
+def _deal_with_if(node: If):
+    if_true_cond = '{}'.format(_unparse(node.cond))
+    if_true_body = _unparse(node.iftrue)
+    if_true = 'if {}:\n{}'.format(if_true_cond, py_indent(if_true_body))
+    if node.iffalse is not None:
+        else_body = _unparse(node.iffalse)
+        else_ = 'else:\n{}'.format(py_indent(else_body))
+        res = '{}\n{}'.format(if_true, else_)
+    else:
+        res = if_true
+    return res
+
+
+def _deal_with_decl(node: Decl):
+    if len(node.quals) > 0 and node.quals[0] == 'private':  # private int indices_states_prior[ALPHABET_SIZE];
+        res = _unparse(node.type)
+    elif isinstance(node.type, ArrayDecl):
+        if node.init is None:  # real_t p_x[2];
+            res = _unparse(node.type)
+        elif isinstance(node.init, InitList):  # real_t p_x[2]={0.0};
+            # todo: if array /var is not inialized assign random values or give warning
+            array_decl = _unparse(node.type)
+            array_fill = [_unparse(item) for item in node.init.exprs]
+            # todo: deal with a[5]={1}->a=[1,0,0,0,0} node.type.dim.value == 1 and len(array_fill) == 1 and int(array_fill) != 0:
+            if len(array_fill) == 1 and array_fill[0] in ['0', '0.0']:
+                res = '{}\n{}.fill({})'.format(array_decl, node.type.type.declname, array_fill[0])
+            else:
+                raise ValueError('Currently array initializer with multiple or non zero values not supported')
+        else:
+            raise ValueError('Not supported case')
+    elif node.init is None:
+        if isinstance(node.type, PtrDecl):  # e.g. float *x;
+            res = f'{node.name} = {node.type.type.type.names[0]}(0)'
+        else:  # e.g. float x;
+            res = f'{node.name} = {node.type.type.names[0]}(0)'
+    else:  # int gid1=get_global_id(0);
+        if isinstance(node.type, PtrDecl):
+            type_cl = node.type.type.type.names[0]
+        else:
+            type_cl = node.type.type.names[0]
+        res = '{} = {}({})'.format(node.name, type_cl, _unparse(node.init))
+    return res
+
+
+def _deal_with_array_decl(node: ArrayDecl):
+    if len(node.type.quals) > 0 and node.type.quals[0] in ['local', '__local']:
+        res = "{name} = local_memory(wi, '{name}', lambda: init_array({dim}, {dtype}))".format(
+            name=_unparse(node.type),
+            dim=_unparse(node.dim),
+            dtype=node.type.type.names[0])
+    else:
+        res = f'{_unparse(node.type)} = init_array({_unparse(node.dim)}, {node.type.type.names[0]})'
+    return res
+
+
+def _deal_with_assignment(node: Assignment):
+    left = _unparse(node.lvalue)
+    right = _unparse(node.rvalue)
+    if search(regex_real_imag_assignment, left):
+        groups = search(regex_real_imag_assignment, left).groups()
+        res = Container(f'set_{groups[5]}(ary={groups[0]}, idx={groups[2]}, value={right})')
+    else:
+        res = Container('{} {} {}'.format(left, _unparse(node.op), right))
+        res.add_container_pre_post_fix(left)
+        res.add_container_pre_post_fix(right)
+    return res
+
+
+def _deal_with_binary_op(node: BinaryOp):
+    left = _unparse(node.left)
+    right = _unparse(node.right)
+    # todo: see test_pointer_arithmetics
+    # if isinstance(node.left, ID) and node.op in ['+']:
+    #     res = f'{node.left.name}[{node.op}:]'
+    # elif isinstance(node.right, ID) and node.op in ['+']:
+    #     res = f'{node.right.name}[{node.op}:]'
+    if node.op in ['%']:
+        res = Container(f'c_modulo({left},{right})')
+    else:
+        if node.op in ['&&']:  # && not supported in python
+            node_op = '&'
+        elif node.op in ['||']:
+            node_op = 'or'
+        else:
+            node_op = node.op
+        # following lines reduce unnecessary brackets like 1+2 is not translated to (1+2) in Python equivalent
+        if isinstance(node.right, BinaryOp):
+            right = Container(f'({right})', **right.__dict__)
+        if isinstance(node.left, BinaryOp):
+            left = Container(f'({left})', **left.__dict__)
+        res = Container('{} {} {}'.format(left, node_op, right))
+    res.add_container_pre_post_fix(left)
+    res.add_container_pre_post_fix(right)
+    return res
+
+
+def _deal_with_unary_op(node: UnaryOp):
+    if node.op == 'p++':
+        res = Container(node.expr.name, code_unary_operator_postfix=['{} += 1'.format(_unparse(node.expr))])
+        # res = '{} += 1'.format(_unparse(node.expr))
+    elif node.op == 'p--':
+        res = Container(node.expr.name, code_unary_operator_postfix=['{} -= 1'.format(_unparse(node.expr))])
+    elif node.op == '++':
+        res = Container(node.expr.name, code_unary_operator_prefix=['{} += 1'.format(_unparse(node.expr))])
+    elif node.op == '--':
+        res = Container(node.expr.name, code_unary_operator_prefix=['{} -= 1'.format(_unparse(node.expr))])
+    elif node.op == '!':
+        res = f'not {_unparse(node.expr)}'
+    else:
+        res = '{}{}'.format(node.op, _unparse(node.expr))
+    return res
+
+
 def _unparse(node: Node) -> Container:
     if isinstance(node, FuncDef):
-        # check if function is kernel
-
-        if len(node.decl.funcspec) > 0:
-            if node.decl.funcspec[0] == '__kernel':
-                header = _unparse_knl_header(node.decl.type)
-                header = f'@cl_kernel\n{header}'
-            else:
-                raise ValueError('Func spec not supported')
-        else:
-            header = _unparse(node.decl.type)
-
-        body = _unparse(node.body)
-        final_yield = ''
-        if len(node.decl.funcspec) > 0:
-            if node.decl.funcspec[0] == '__kernel':
-                final_yield = py_indent('yield  # required to model local memory behaviour correctly')
-        if final_yield == '':
-            function = '{}\n{}'.format(header, py_indent(body))
-        else:
-            function = '{}\n{}\n{}'.format(header, py_indent(body), final_yield)
-        res = function
+        res = _deal_with_func_def_node(node)
     elif isinstance(node, FuncDeclExt):
         res = _unparse_func_header(node)
     elif isinstance(node, TypeDecl):
         res = node.declname
     elif isinstance(node, FuncCall):
-        if isinstance(node.name, ID):
-            func_name = node.name.name
-            # todo: use funcs_for_cl_emulation.py for adding support for all cl functions
-            if func_name.startswith('convert_'):
-                """
-                alternative:
-                def convert(value, dtype='int32'):
-                    return np.dtype(dtype).type(value)
-                """
-                type_name = re.search(r'(convert_)([\w]+)', node.name.name).group(2)
-                res = '{}({})'.format(type_name, _unparse(node.args))
-            elif 'cos' == func_name:
-                res = 'np.cos({})'.format(_unparse(node.args))
-            elif 'sin' == func_name:
-                res = 'np.sin({})'.format(_unparse(node.args))
-            elif func_name in translation_cl_work_item_functions:
-                res = 'wi.{}[{}]'.format(translation_cl_work_item_functions[func_name], _unparse(node.args))
-            elif 'barrier' == func_name:
-                if isinstance((_ := node.args.exprs[0]), BinaryOp):
-                    barrier_name = f'{node.args.exprs[0].left.name}|{node.args.exprs[0].right.name}'
-                else:
-                    barrier_name = node.args.exprs[0].name
-                res = f'\nwi.scope = locals()  # saves reference to objects in scope for debugging other wi in wg \n' \
-                      f'yield  # yield models the behaviour of barrier({barrier_name})\n'
-            else:
-                if func_name in (_ := MacroWithArguments.names_py_macro):
-                    args = _unparse(node.args).split(', ')
-                    format_arg = ', '.join([f'{macro_arg}="{args[i]}"' for i, macro_arg in enumerate(_[func_name])])
-                    res = f'exec({func_name}.format({format_arg}))'
-                elif func_name in names_func_require_work_item:
-                    res = '{}({}, wi=wi)'.format(_unparse(node.name), _unparse(node.args))
-                    if func_name in names_func_has_barrier:
-                        res = f'(yield from {res})'
-                else:
-                    res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
-        else:
-            res = '{}({})'.format(_unparse(node.name), _unparse(node.args))
+        res = _deal_with_func_call(node)
     elif isinstance(node, ExprList):
         res = ', '.join([_unparse(expr) for expr in node.exprs])
     elif isinstance(node, Compound):  # e.g. body of a function or a for loop
-        # compound = [_unparse(block_item) for block_item in node.block_items]
-        # loop makes debugging easier. Set breakpoint in loop, then remove BP and step over to get to target line
-        compound = []
-        for block_item in node.block_items:
-            if isinstance(block_item, UnaryOp):  # number++; should translate to number +=1 and not numbernumber+=1
-                compound.append(_unparse(block_item).only_use_prefix_postfix())
-            else:
-                compound.append(_unparse(block_item).wrap_code_with_prefix_postfix())
-        res = '\n'.join(compound)
+        res = _deal_with_compound(node)
     elif isinstance(node, ArrayRef):
-        # if isinstance(node.subscript, UnaryOp):  # e.g. array[pos++] = 5; -> pos+=1; \n array[pos] = 5;
-        #     unary_op = _unparse(node.subscript)
-        #     res = '{}[{}]'.format(_unparse(node.name), node.subscript.expr.name)
-        # else:
-        array_index = _unparse(node.subscript)
-        res = Container('{}[{}]'.format(_unparse(node.name), array_index))
-        res.add_container_pre_post_fix(array_index)
+        res = _deal_with_arrayref(node)
     elif isinstance(node, For):
-        # only for loop considered of style: for(int i=start; i<=stop; i++)
-        #                                 or for(int i>=stop; i>=0; i--)
-        detect_inconsistent_for_loop_header_variable(node)
-
-        var = node.init.decls[0].name
-        right = _unparse(node.cond.right)
-        left = _unparse(node.cond.left)
-        cond_op = node.cond.op
-        if right == var:  # e.g. 5>=i -> i<= 5
-            right = left
-            left = var
-            cond_op = {'!=': '!=',
-                       '<=': '>=',
-                       '>=': '<=',
-                       '>': '<',
-                       '<': '>'}[cond_op]
-        stop = right
-        op = node.next.op
-        stop = {'p++': {'!=': stop,
-                        '<': stop,
-                        '<=': stop + '+1'},
-                'p--': {'!=': stop,
-                        '>': stop,
-                        '>=': stop + '-1'}}[op][cond_op]
-        if op == 'p++':
-            step = 1
-        elif op == 'p--':
-            step = -1
-        else:
-            raise NotImplementedError()
-        loop_header = '{var} in range({start}, {stop}, {step})'.format(var=var,
-                                                                       start=_unparse(node.init.decls[0].init),
-                                                                       stop=stop,
-                                                                       step=step)
-        loop_body = _unparse(node.stmt)
-        res = 'for {}:\n{}'.format(loop_header, py_indent(loop_body))
+        res = _deal_with_for(node)
     elif isinstance(node, While):
         res = 'while {}:\n{}'.format(_unparse(node.cond), py_indent(_unparse(node.stmt)))
     elif isinstance(node, Break):
         res = 'break'
     elif isinstance(node, If):
-        if_true_cond = '{}'.format(_unparse(node.cond))
-        if_true_body = _unparse(node.iftrue)
-        if_true = 'if {}:\n{}'.format(if_true_cond, py_indent(if_true_body))
-        if node.iffalse is not None:
-            else_body = _unparse(node.iffalse)
-            else_ = 'else:\n{}'.format(py_indent(else_body))
-            res = '{}\n{}'.format(if_true, else_)
-        else:
-            res = if_true
+        res = _deal_with_if(node)
     elif isinstance(node, Decl):
-        if len(node.quals) > 0 and node.quals[0] == 'private':  # private int indices_states_prior[ALPHABET_SIZE];
-            res = _unparse(node.type)
-        elif isinstance(node.type, ArrayDecl):
-            if node.init is None:  # real_t p_x[2];
-                res = _unparse(node.type)
-            elif isinstance(node.init, InitList):  # real_t p_x[2]={0.0};
-                # todo: if array /var is not inialized assign random values or give warning
-                array_decl = _unparse(node.type)
-                array_fill = [_unparse(item) for item in node.init.exprs]
-                # todo: deal with a[5]={1}->a=[1,0,0,0,0} node.type.dim.value == 1 and len(array_fill) == 1 and int(array_fill) != 0:
-                if len(array_fill) == 1 and array_fill[0] in ['0', '0.0']:
-                    res = '{}\n{}.fill({})'.format(array_decl, node.type.type.declname, array_fill[0])
-                else:
-                    raise ValueError('Currently array initializer with multiple or non zero values not supported')
-        elif node.init is None:
-            if isinstance(node.type, PtrDecl):  # e.g. float *x;
-                res = f'{node.name} = {node.type.type.type.names[0]}(0)'
-            else:  # e.g. float x;
-                res = f'{node.name} = {node.type.type.names[0]}(0)'
-        else:  # int gid1=get_global_id(0);
-            if isinstance(node.type, PtrDecl):
-                type_cl = node.type.type.type.names[0]
-            else:
-                type_cl = node.type.type.names[0]
-            res = '{} = {}({})'.format(node.name, type_cl, _unparse(node.init))
+        res = _deal_with_decl(node)
     elif isinstance(node, ArrayDecl):
-        if len(node.type.quals) > 0 and node.type.quals[0] in ['local', '__local']:
-            res = "{name} = local_memory(wi, '{name}', lambda: init_array({dim}, {dtype}))".format(
-                name=_unparse(node.type),
-                dim=_unparse(node.dim),
-                dtype=node.type.type.names[0])
-        else:
-            res = f'{_unparse(node.type)} = init_array({_unparse(node.dim)}, {node.type.type.names[0]})'
+        res = _deal_with_array_decl(node)
     elif isinstance(node, Assignment):
-        left = _unparse(node.lvalue)
-        right = _unparse(node.rvalue)
-        if search(regex_real_imag_assignment, left):
-            groups = search(regex_real_imag_assignment, left).groups()
-            res = Container(f'set_{groups[5]}(ary={groups[0]}, idx={groups[2]}, value={right})')
-        else:
-            res = Container('{} {} {}'.format(left, _unparse(node.op), right))
-            res.add_container_pre_post_fix(left)
-            res.add_container_pre_post_fix(right)
+        res = _deal_with_assignment(node)
     elif isinstance(node, Constant):
         res = node.value
     elif isinstance(node, Return):
         res = 'return ' + _unparse(node.expr)
     elif isinstance(node, BinaryOp):
-        left = _unparse(node.left)
-        right = _unparse(node.right)
-        # todo: see test_pointer_arithmetics
-        # if isinstance(node.left, ID) and node.op in ['+']:
-        #     res = f'{node.left.name}[{node.op}:]'
-        # elif isinstance(node.right, ID) and node.op in ['+']:
-        #     res = f'{node.right.name}[{node.op}:]'
-        if node.op in ['%']:
-            res = Container(f'c_modulo({left},{right})')
-        else:
-            if node.op in ['&&']:  # && not supported in python
-                node_op = '&'
-            elif node.op in ['||']:
-                node_op = 'or'
-            else:
-                node_op = node.op
-            # following lines reduce unnecessary brackets like 1+2 is not translated to (1+2) in Python equivalent
-            if isinstance(node.right, BinaryOp):
-                right = Container(f'({right})', **right.__dict__)
-            if isinstance(node.left, BinaryOp):
-                left = Container(f'({left})', **left.__dict__)
-            res = Container('{} {} {}'.format(left, node_op, right))
-        res.add_container_pre_post_fix(left)
-        res.add_container_pre_post_fix(right)
+        res = _deal_with_binary_op(node)
     elif isinstance(node, ID):
         res = node.name
     elif isinstance(node, IdentifierType):
@@ -428,19 +497,7 @@ def _unparse(node: Node) -> Container:
         type_cl = node.to_type.type.type.names[0]
         res = '{}({})'.format(type_cl, _unparse(node.expr))
     elif isinstance(node, UnaryOp):
-        if node.op == 'p++':
-            res = Container(node.expr.name, code_unary_operator_postfix=['{} += 1'.format(_unparse(node.expr))])
-            # res = '{} += 1'.format(_unparse(node.expr))
-        elif node.op == 'p--':
-            res = Container(node.expr.name, code_unary_operator_postfix=['{} -= 1'.format(_unparse(node.expr))])
-        elif node.op == '++':
-            res = Container(node.expr.name, code_unary_operator_prefix=['{} += 1'.format(_unparse(node.expr))])
-        elif node.op == '--':
-            res = Container(node.expr.name, code_unary_operator_prefix=['{} -= 1'.format(_unparse(node.expr))])
-        elif node.op == '!':
-            res = f'not {_unparse(node.expr)}'
-        else:
-            res = '{}{}'.format(node.op, _unparse(node.expr))
+        res = _deal_with_unary_op(node)
     elif isinstance(node, StructRef):
         res = f'{_unparse(node.name)}.{_unparse(node.field)}'
     elif isinstance(node, TernaryOp):
@@ -786,7 +843,8 @@ def replace_builtin_macros(code_c):
     defines_to_be_replaced = re.findall(rgx, code_c)
     code_c = re.sub(rgx, '', code_c)
     for name, val in defines_to_be_replaced:
-        code_c = re.sub('([\[\(\s\+\*\/\-\=]|==)' + f'({name})' + '([\]\)\s\+\*\/\-\;]|==)', r'\1' + val + r'\3', code_c)
+        code_c = re.sub('([\[\(\s\+\*\/\-\=]|==)' + f'({name})' + '([\]\)\s\+\*\/\-\;]|==)', r'\1' + val + r'\3',
+                        code_c)
     return code_c
 
 
@@ -858,6 +916,7 @@ import numpy as np
     #     preamble_buff_t = preamble_buff_t_real_np
     #
     # preamble_buff_t = '{}\n\n{}'.format(preamble_buff_t, preamble_cl_funcs_to_lambdas)
+    # logging.info(code_py)
     return code_py
 
 
