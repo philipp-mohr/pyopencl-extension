@@ -99,6 +99,7 @@ class CPointerVec(CPointerBase):
 
 sign = lambda x: np.sign(x)
 fabs = lambda x: np.abs(x)
+ceil = lambda x: np.ceil(x)
 log2 = lambda x: np.log2(x)
 sqrt = lambda x: x ** 0.5
 exp = lambda x: np.exp(x)

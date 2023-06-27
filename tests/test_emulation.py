@@ -556,3 +556,26 @@ def test_compute_tuple_from_idx_linear(idx_tuple, dimensions, idx_lin_ref):
     assert idx_lin == idx_lin_ref
     idx_tuple2 = compute_tuple_idx(idx_lin, dimensions)
     assert idx_tuple == idx_tuple2
+
+
+def test_kernel_pointer_decl():
+    a = cl.zeros((10,), dtype=cl.int)
+    knl = cl.Kernel('my_knl', {'a': a},
+                    """
+                    global int* c_glob = a;
+                    private int ary[5];
+                    int* c;
+                    int* b=ary;
+                    c = b; // swap pointers
+                    c[1] = 5;
+                    a[1] = ary[1];
+                    c_glob[2] = 10;""",
+                    global_size=a.shape)
+    knl_py = knl.compile(emulate=True)
+    knl_py()
+    assert a.get()[1] == 5   # verify private pointer behavior
+    assert a.get()[2] == 10  # verify global pointer behavior global int* c_glob = a;
+    a2 = cl.zeros((10,), dtype=cl.int)
+    knl(a=a2)
+    assert a2.get()[1] == 5
+    assert a2.get()[2] == 10
