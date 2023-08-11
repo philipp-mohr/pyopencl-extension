@@ -359,7 +359,7 @@ class Kernel(FunctionBase, Compilable):
         # if kernel is compiled put defines on top of program
         defines = self.defines
         self.defines = {}  # ensures that defines are not placed before kernel another time
-        Program(defines=defines, kernels=[self]).compile(context=context, emulate=emulate, file=file)
+        Program(defines=defines, kernels=[self]).compile(context=context, emulate=emulate, file=file, **kwargs)
         self.defines = defines  # reconstructs defines
         return self.callable_kernel
 
@@ -415,9 +415,9 @@ class Program(Compilable):
     """
 
     def compile(self, context: Context = None, emulate: bool = False,
-                file: str = '$default_path') -> 'ProgramContainer':
+                file: str = '$default_path', **kwargs) -> 'ProgramContainer':
 
-        return compile_cl_program(self, context, emulate, file)
+        return compile_cl_program(self, context, emulate, file, **kwargs)
 
     functions: List[Function] = field(default_factory=lambda: [])
     kernels: List[Kernel] = field(default_factory=lambda: [])
@@ -720,11 +720,11 @@ class MemoizeKernelFunctions:
         self.f = f
         self.memo = {}
 
-    def __call__(self, program_model: Program, context: Context, file: str = None):
+    def __call__(self, program_model: Program, context: Context, file: str = None, **kwargs):
         # body = ''.join(program_model.rendered_template)
         _id = hash(f'{hash(context)}{hash(program_model)}')
         if _id not in self.memo:
-            self.memo[_id] = self.f(program_model, context, file)
+            self.memo[_id] = self.f(program_model, context, file, **kwargs)
         return self.memo[_id]
 
 
@@ -748,7 +748,7 @@ def compile_cl_program_emulation(program_model: Program, context: Context, file:
                                  *args, **kwargs) -> dict[str, Callable]:
     code_cl = program_model.rendered_template
     write_string_to_file(code_cl, file + '.cl', b_logging=True)  # creates file with cl code
-    code_py = unparse_c_code_to_python(code_c=code_cl)
+    code_py = unparse_c_code_to_python(code_c=code_cl, **kwargs)
     module = create_py_file_and_load_module(code_py, file)
     kernels_model = program_model.kernels
     callable_kernels = {knl.name: module.__getattribute__(knl.name) for knl in kernels_model}
@@ -756,7 +756,7 @@ def compile_cl_program_emulation(program_model: Program, context: Context, file:
 
 
 def compile_cl_program(program_model: Program, context: Context = None, emulate: bool = False,
-                       file: str = '$default_path') -> ProgramContainer:
+                       file: str = '$default_path', **kwargs) -> ProgramContainer:
     t_ns_start = time.perf_counter_ns()
     # deal with file name
     if isinstance(file, Path):
@@ -769,7 +769,7 @@ def compile_cl_program(program_model: Program, context: Context = None, emulate:
 
     dict_kernels_program_model = {knl.name: knl for knl in program_model.kernels}
     if emulate:
-        dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, context, file)
+        dict_emulation_kernel_functions = compile_cl_program_emulation(program_model, context, file, **kwargs)
         callable_kernels = {k: CallableKernelEmulation(kernel_model=dict_kernels_program_model[k], function=v)
                             for k, v in dict_emulation_kernel_functions.items()}
     else:

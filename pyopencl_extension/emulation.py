@@ -850,7 +850,7 @@ def replace_builtin_macros(code_c):
     return code_c
 
 
-def unparse_c_code_to_python(code_c: str) -> str:
+def unparse_c_code_to_python(code_c: str, **kwargs) -> str:
     # todo prevents files: https://stackoverflow.com/questions/12644902/how-to-prevent-table-regeneration-in-ply
     # yacc.yacc(debug=False, write_tables=False)
     code_c = re.sub('#define[ ]+TP_ROOT[ ]+(cfloat|cdouble])[ ]*(\n)', '', code_c)  # removes TP_ROOT = cfloat
@@ -879,7 +879,7 @@ from pyopencl_extension.emulation import cl_kernel, WorkItem, local_memory
 from pyopencl_extension.types.funcs_for_emulation import *
 from pyopencl_extension.types.utilities_np_cl import Types, c_to_np_type_name_catch
 import numpy as np
-            """
+""" + kwargs.get('emulation_header', '')
     module_py.append(header)
     if 'cfloat' in code_c:
         module_py.append(preamble_buff_t_complex64_np)
